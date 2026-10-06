@@ -1,0 +1,7 @@
+.DS_Store
+.build/
+.build-xcode/
+DerivedData/
+*.xcuserstate
+xcuserdata/
+ContextRoute.app/
