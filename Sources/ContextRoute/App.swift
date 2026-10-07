@@ -5,7 +5,6 @@ import SwiftUI
 struct ContextRouteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = RouterModel.shared
-    @StateObject private var editingCommands = EditingCommandState()
     @StateObject private var windowCommands = WindowCommandState()
     @AppStorage(InterfaceLanguage.defaultsKey) private var languageRawValue = InterfaceLanguage.english.rawValue
 
@@ -55,19 +54,20 @@ struct ContextRouteApp: App {
                 .environment(\.locale, interfaceLocale)
             }
             CommandGroup(replacing: .printItem) { }
-            CommandGroup(replacing: .undoRedo) {
-                Button("Undo") { editingCommands.undo(model) }
-                    .keyboardShortcut("z", modifiers: .command)
-                    .disabled(editingCommands.hasTextEditor ? !editingCommands.canUndo : !model.canUndo)
-                    .environment(\.locale, interfaceLocale)
-                Button("Redo") { editingCommands.redo(model) }
-                    .keyboardShortcut("z", modifiers: [.command, .shift])
-                    .disabled(editingCommands.hasTextEditor ? !editingCommands.canRedo : !model.canRedo)
-                    .environment(\.locale, interfaceLocale)
-            }
-            TextEditingCommands()
+            MinimalMenuCommands()
             WindowMenuCommands(windows: windowCommands, locale: interfaceLocale)
         }
+    }
+}
+
+private struct MinimalMenuCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .undoRedo) { }
+        CommandGroup(replacing: .pasteboard) { }
+        CommandGroup(replacing: .textEditing) { }
+        CommandGroup(replacing: .textFormatting) { }
+        CommandGroup(replacing: .toolbar) { }
+        CommandGroup(replacing: .sidebar) { }
     }
 }
 
@@ -77,8 +77,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static let showRoutingFailureNotification = Notification.Name("ContextRoute.ShowRoutingFailure")
     private var settingsWindow: NSWindow?
     private let focusVisibility = SettingsFocusVisibility()
+    private let editingCommands = EditingCommandState()
     private let textUndoManager = UndoManager()
     private var windowCloseObserver: NSObjectProtocol?
+    private var menuObservers: [NSObjectProtocol] = []
+    private var menuCleanupScheduled = false
     private var isTerminating = false
 
     func showSettingsWindow() {
@@ -100,6 +103,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window.contentViewController = hostingController
         window.setContentSize(NSSize(width: 760, height: 540))
         window.title = "ContextRoute"
+        window.tabbingMode = .disallowed
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .unified
         window.minSize = NSSize(width: 700, height: 450)
@@ -166,6 +170,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
         NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
+        scheduleMenuCleanup()
+    }
+
+    private func scheduleMenuCleanup() {
+        guard !menuCleanupScheduled else { return }
+        menuCleanupScheduled = true
+        // SwiftUI constructs command groups incrementally. Wait until the menu update finishes.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.menuCleanupScheduled = false
+            guard let mainMenu = NSApp.mainMenu else { return }
+            for item in mainMenu.items {
+                guard let submenu = item.submenu else { continue }
+                let isEmpty = !self.hasCommands(in: submenu)
+                if item.isHidden != isEmpty { item.isHidden = isEmpty }
+            }
+        }
+    }
+
+    private func hasCommands(in menu: NSMenu) -> Bool {
+        menu.items.contains { item in
+            guard !item.isSeparatorItem, !item.isHidden else { return false }
+            if let submenu = item.submenu { return hasCommands(in: submenu) }
+            return item.action != nil || item.view != nil
+        }
     }
 
     private func returnToMenuBarIfNoWindows(excluding closingWindow: NSWindow) {
@@ -184,6 +213,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        NSWindow.allowsAutomaticWindowTabbing = false
+        editingCommands.startMonitoring()
+        for name in [NSMenu.didAddItemNotification, NSMenu.didRemoveItemNotification] {
+            menuObservers.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                guard var menu = notification.object as? NSMenu, let mainMenu = NSApp.mainMenu else { return }
+                while menu !== mainMenu {
+                    guard let parent = menu.supermenu else { return }
+                    menu = parent
+                }
+                MainActor.assumeIsolated { self?.scheduleMenuCleanup() }
+            })
+        }
         windowCloseObserver = NotificationCenter.default.addObserver(
             forName: NSWindow.willCloseNotification, object: nil, queue: .main
         ) { [weak self] notification in
@@ -235,12 +276,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         RouterModel.shared.refreshDefaultHandlerStatus()
+        scheduleMenuCleanup()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
+        editingCommands.stopMonitoring()
+        for observer in menuObservers { NotificationCenter.default.removeObserver(observer) }
         if let windowCloseObserver { NotificationCenter.default.removeObserver(windowCloseObserver) }
     }
 
