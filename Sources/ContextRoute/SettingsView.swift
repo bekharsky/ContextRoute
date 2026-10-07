@@ -142,6 +142,12 @@ struct SettingsView: View {
             detail: AnyView(detail
                 .environment(\.locale, interfaceLanguage.locale)
                 .focusEffectDisabled(!focusVisibility.usesKeyboard)),
+            routeEditor: AnyView(RouteEditorView(model: model, browsers: browsers, route: editingRoute)
+                .environment(\.locale, interfaceLanguage.locale)
+                .preferredColorScheme(appearanceChoice.colorScheme)
+                .focusEffectDisabled(!focusVisibility.usesKeyboard)
+                .presentationSizing(.fitted)),
+            isEditingRoute: $isEditingRoute,
             focusVisibility: focusVisibility,
             searchText: $searchText,
             title: selectedSection.resolvedTitle,
@@ -159,11 +165,6 @@ struct SettingsView: View {
         .onAppear(perform: syncFallbackSelection)
         .onChange(of: searchText) { _, _ in
             selectFirstMatchingSectionIfNeeded()
-        }
-        .sheet(isPresented: $isEditingRoute) {
-            RouteEditorView(model: model, browsers: browsers, route: editingRoute)
-                .focusEffectDisabled(!focusVisibility.usesKeyboard)
-                .presentationSizing(.fitted)
         }
         .onChange(of: isEditingRoute) { _, isOpen in
             if !isOpen { editingRoute = nil }
@@ -680,6 +681,8 @@ final class SettingsFocusVisibility: ObservableObject {
 private struct SettingsSplitContainer: NSViewControllerRepresentable {
     let sidebar: AnyView
     let detail: AnyView
+    let routeEditor: AnyView
+    @Binding var isEditingRoute: Bool
     let focusVisibility: SettingsFocusVisibility
     @Binding var searchText: String
     let title: String
@@ -707,6 +710,8 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
 
     func updateNSViewController(_ controller: SettingsSplitController, context: Context) {
         context.coordinator.update(
+            routeEditor: routeEditor,
+            isEditingRoute: $isEditingRoute,
             searchText: $searchText,
             title: title,
             showsRefresh: showsRefresh,
@@ -745,6 +750,10 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
         private var navigationItem: NSToolbarItemGroup?
         private var titleItem: NSToolbarItem?
         private var titleField: NSTextField?
+        private var routeEditor = AnyView(EmptyView())
+        private var isEditingRoute: Binding<Bool>?
+        private var routeSheet: NSWindow.HostingSheetRepresentation<AnyView>?
+        private var sheetUpdateScheduled = false
 
         func attach(to controller: SettingsSplitController, focusVisibility: SettingsFocusVisibility) {
             self.controller = controller
@@ -756,6 +765,8 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
         }
 
         func update(
+            routeEditor: AnyView,
+            isEditingRoute: Binding<Bool>,
             searchText: Binding<String>,
             title: String,
             showsRefresh: Bool,
@@ -765,6 +776,8 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
             onForward: @escaping () -> Void,
             onRefresh: @escaping () -> Void
         ) {
+            self.routeEditor = routeEditor
+            self.isEditingRoute = isEditingRoute
             self.searchText = searchText
             self.title = title
             self.showsRefresh = showsRefresh
@@ -782,19 +795,21 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
                 field.setAccessibilityLabel(ContextRouteLocalization.string("Search settings"))
             }
             updateToolbarItems()
-            window?.title = title
+            if window?.title != title { window?.title = title }
+            scheduleSheetUpdate()
         }
 
         func install(in window: NSWindow?) {
             guard let window, let controller, searchText != nil else { return }
             self.window = window
-            window.title = title
-            window.titleVisibility = .hidden
-            window.toolbarStyle = .unified
             focusVisibility?.attach(to: window)
+            scheduleSheetUpdate()
 
             guard window.toolbar?.identifier != Self.toolbarIdentifier else { return }
 
+            window.title = title
+            window.titleVisibility = .hidden
+            window.toolbarStyle = .unified
             let toolbar = NSToolbar(identifier: Self.toolbarIdentifier)
             toolbar.delegate = self
             toolbar.displayMode = .iconOnly
@@ -805,6 +820,35 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
             window.toolbar = toolbar
             controller.view.layoutSubtreeIfNeeded()
             focusVisibility?.attach(to: window)
+        }
+
+        private func scheduleSheetUpdate() {
+            guard !sheetUpdateScheduled else { return }
+            sheetUpdateScheduled = true
+            // Finish the hosting-view update before AppKit starts the sheet transition.
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.sheetUpdateScheduled = false
+                self.updateSheetPresentation()
+            }
+        }
+
+        private func updateSheetPresentation() {
+            guard let window, let isEditingRoute else { return }
+            if isEditingRoute.wrappedValue {
+                if let routeSheet {
+                    routeSheet.rootView = routeEditor
+                } else {
+                    routeSheet = window.beginSheet(content: { routeEditor }) { [weak self] in
+                        guard let self else { return }
+                        self.routeSheet = nil
+                        self.isEditingRoute?.wrappedValue = false
+                    }
+                }
+                focusVisibility?.attach(to: window)
+            } else if let routeSheet {
+                window.endSheet(routeSheet)
+            }
         }
 
         func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -928,7 +972,7 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
                 navigationItem.subitems[0].isEnabled = canNavigateBack
                 navigationItem.subitems[1].isEnabled = canNavigateForward
             }
-            if let titleField {
+            if let titleField, titleField.stringValue != title {
                 titleField.stringValue = title
                 titleField.sizeToFit()
                 titleField.invalidateIntrinsicContentSize()
