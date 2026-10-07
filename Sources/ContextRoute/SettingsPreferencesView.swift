@@ -71,8 +71,14 @@ struct SettingsPreferencesView: View {
 
             SettingsCard {
                 VStack(alignment: .leading, spacing: 8) {
-                    Toggle("Launch at login", isOn: Binding(get: { loginItem.isEnabled }, set: loginItem.setEnabled))
-                        .toggleStyle(.switch)
+                    HStack(spacing: 12) {
+                        Text("Launch at login")
+                        Spacer(minLength: 12)
+                        Toggle("Launch at login", isOn: Binding(get: { loginItem.isEnabled }, set: loginItem.setEnabled))
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.regular)
+                    }
                     Text("Start in the menu bar when you sign in.").font(.caption).foregroundStyle(.secondary)
                     if loginItem.requiresApproval {
                         Text("Allow ContextRoute in Login Items to finish enabling this setting.")

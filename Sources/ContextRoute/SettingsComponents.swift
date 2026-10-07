@@ -27,6 +27,7 @@ struct SettingsCard<Content: View>: View {
 
     var body: some View {
         content
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(inset)
             .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
