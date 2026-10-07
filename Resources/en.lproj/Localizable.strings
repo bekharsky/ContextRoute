@@ -83,6 +83,9 @@
 "Turn handler off" = "Turn handler off";
 "Turn handler on" = "Turn handler on";
 "Settings…" = "Settings…";
+"About ContextRoute" = "About ContextRoute";
+"Created by %@" = "Created by %@";
+"Used for links without a matching app route. App routes and default handlers take priority." = "Used for links without a matching app route. App routes and default handlers take priority.";
 "Quit ContextRoute" = "Quit ContextRoute";
 "No links have been routed yet." = "No links have been routed yet.";
 "Rule saved for %@." = "Rule saved for %@.";

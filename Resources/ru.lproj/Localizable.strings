@@ -83,6 +83,9 @@
 "Turn handler off" = "Выключить обработчик";
 "Turn handler on" = "Включить обработчик";
 "Settings…" = "Настройки…";
+"About ContextRoute" = "О ContextRoute";
+"Created by %@" = "Автор: %@";
+"Used for links without a matching app route. App routes and default handlers take priority." = "Используется для ссылок без подходящего правила. Правила приложений и обработчики ссылок имеют приоритет.";
 "Quit ContextRoute" = "Завершить ContextRoute";
 "No links have been routed yet." = "Ссылки пока не перенаправлялись.";
 "Rule saved for %@." = "Правило для %@ сохранено.";

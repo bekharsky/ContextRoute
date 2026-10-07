@@ -41,25 +41,9 @@ private enum SettingsSection: CaseIterable, Identifiable, Hashable {
     }
 }
 
-private enum AppearanceChoice: String, CaseIterable, Identifiable {
-    case system
-    case light
-    case dark
-
-    var id: Self { self }
-
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: nil
-        case .light: .light
-        case .dark: .dark
-        }
-    }
-}
-
 struct SettingsView: View {
     @ObservedObject var model: RouterModel
-    @AppStorage("app.contextroute.appearance") private var appearanceRawValue = AppearanceChoice.system.rawValue
+    @AppStorage(AppearanceChoice.defaultsKey) private var appearanceRawValue = AppearanceChoice.system.rawValue
     @AppStorage(InterfaceLanguage.defaultsKey) private var languageRawValue = InterfaceLanguage.english.rawValue
     @State private var browsers = BrowserCatalog.installedBrowsers()
     @State private var fallbackBrowserID = ""
@@ -166,9 +150,12 @@ struct SettingsView: View {
         .onChange(of: searchText) { _, _ in
             selectFirstMatchingSectionIfNeeded()
         }
+        .onChange(of: appearanceRawValue) { _, _ in
+            NSApp.appearance = appearanceChoice.nativeAppearance
+        }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showLinkSetupNotification)) { _ in
             searchText = ""
-            selectSection(.fallback)
+            selectSection(model.fallbackBrowserBundleIdentifier == nil ? .fallback : .routes)
         }
         .onChange(of: isEditingRoute) { _, isOpen in
             if !isOpen { editingRoute = nil }
@@ -309,56 +296,26 @@ struct SettingsView: View {
 
     private var fallbackTab: some View {
         pageContent {
-            SectionIntro("Choose where links go when no app route matches.")
-
             SettingsCard {
-                VStack(spacing: 15) {
-                    HStack(spacing: 12) {
-                        AppIconView(appURL: selectedFallbackBrowser?.appURL, symbol: "globe", size: 36)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("Fallback browser")
-                                .font(.headline)
-                            Text("Used when no source app rule matches.")
-                                .font(.callout)
-                                .foregroundStyle(.secondary)
+                HStack(spacing: 10) {
+                    Text("Browser")
+                    Spacer(minLength: 12)
+                    AppIconView(appURL: selectedFallbackBrowser?.appURL, symbol: "globe", size: 24)
+                    Picker("Fallback browser", selection: $fallbackBrowserID) {
+                        Text("Choose browser").tag("")
+                        ForEach(browsers) { browser in
+                            Text(browser.name).tag(browser.bundleIdentifier)
                         }
-                        Spacer(minLength: 10)
-                        Picker("Fallback browser", selection: $fallbackBrowserID) {
-                            Text("Choose browser").tag("")
-                            ForEach(browsers) { browser in
-                                Text(browser.name).tag(browser.bundleIdentifier)
-                            }
-                        }
-                        .frame(width: 250)
-                        .onChange(of: fallbackBrowserID) { _, newValue in
-                            model.setFallbackBrowser(browsers.first { $0.bundleIdentifier == newValue })
-                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 190)
+                    .onChange(of: fallbackBrowserID) { _, newValue in
+                        model.setFallbackBrowser(browsers.first { $0.bundleIdentifier == newValue })
                     }
                 }
             }
 
-            if !model.lastRoute.isEmpty {
-                SettingsCard(inset: 12) {
-                    Label(
-                        L10n.format("Last route: %@", arguments: [model.lastRoute]),
-                        systemImage: "arrow.up.right")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(2)
-                }
-            }
-
-            Button("Use current default browser") {
-                _ = model.captureCurrentDefaultBrowserIfPossible()
-                syncFallbackSelection()
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-
-            Text("If another link router is currently the default, choose a browser here. ContextRoute won't use another router as its fallback browser.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
+            SectionIntro("Used for links without a matching app route. App routes and default handlers take priority.")
         }
     }
 

@@ -19,9 +19,7 @@ struct ContextRouteApp: App {
                     Divider()
                 }
                 Button("Settings…") { appDelegate.showSettingsWindow() }
-                Divider()
-                Text(model.statusMessage)
-                    .lineLimit(3)
+                Button("About ContextRoute") { appDelegate.showAboutWindow() }
                 Divider()
                 Button("Quit ContextRoute") { NSApp.terminate(nil) }
             }
@@ -29,6 +27,17 @@ struct ContextRouteApp: App {
             .onAppear { model.refreshDefaultHandlerStatus() }
         }
         .menuBarExtraStyle(.menu)
+        .commandsReplaced {
+            CommandGroup(replacing: .appInfo) {
+                Button("About ContextRoute") { appDelegate.showAboutWindow() }
+                    .environment(\.locale, interfaceLocale)
+            }
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings…") { appDelegate.showSettingsWindow() }
+                    .keyboardShortcut(",", modifiers: .command)
+                    .environment(\.locale, interfaceLocale)
+            }
+        }
     }
 }
 
@@ -75,6 +84,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    func showAboutWindow() {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let credits = NSAttributedString(
+            string: ContextRouteLocalization.format("Created by %@", arguments: ["Sergey Bekharskiy"]),
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 13),
+                .foregroundColor: NSColor.labelColor,
+                .paragraphStyle: paragraph
+            ])
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [
+            .applicationName: "ContextRoute",
+            .credits: credits
+        ]
+        if let icon = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "ContextRoute") {
+            options[.applicationIcon] = icon.withSymbolConfiguration(
+                NSImage.SymbolConfiguration(pointSize: 64, weight: .regular)
+                    .applying(NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor]))) ?? icon
+        }
+
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.orderFrontStandardAboutPanel(options: options)
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            NSApp.orderFrontStandardAboutPanel(options: options)
+        }
+    }
+
     private func bringSettingsWindowForward(_ window: NSWindow) {
         if window.isMiniaturized { window.deminiaturize(nil) }
         NSApp.unhide(nil)
@@ -104,6 +142,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        NSApp.appearance = AppearanceChoice.current.nativeAppearance
         let model = RouterModel.shared
         _ = model.captureCurrentDefaultBrowserIfPossible()
         model.refreshDefaultHandlerStatus()
@@ -134,6 +173,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         Task { @MainActor in
             RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier)
+        }
+    }
+}
+
+enum AppearanceChoice: String, CaseIterable, Identifiable {
+    case system
+    case light
+    case dark
+
+    static let defaultsKey = "app.contextroute.appearance"
+
+    static var current: Self {
+        UserDefaults.standard.string(forKey: defaultsKey).flatMap(Self.init(rawValue:)) ?? .system
+    }
+
+    var id: Self { self }
+
+    var colorScheme: ColorScheme? {
+        switch self {
+        case .system: nil
+        case .light: .light
+        case .dark: .dark
+        }
+    }
+
+    var nativeAppearance: NSAppearance? {
+        switch self {
+        case .system: nil
+        case .light: NSAppearance(named: .aqua)
+        case .dark: NSAppearance(named: .darkAqua)
         }
     }
 }
