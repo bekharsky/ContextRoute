@@ -6,25 +6,15 @@ struct ContextRouteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = RouterModel.shared
     @AppStorage(InterfaceLanguage.defaultsKey) private var languageRawValue = InterfaceLanguage.english.rawValue
-    @Environment(\.openSettings) private var openSettings
 
     private var interfaceLocale: Locale {
         InterfaceLanguage(rawValue: languageRawValue)?.locale ?? InterfaceLanguage.english.locale
     }
 
     var body: some Scene {
-        Settings {
-            SettingsView(model: model)
-                .frame(width: 760, height: 540)
-        }
-        .defaultSize(width: 760, height: 540)
-        .windowResizability(.contentSize)
-        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
-        .defaultLaunchBehavior(.suppressed)
-
         MenuBarExtra("ContextRoute", systemImage: "arrow.triangle.branch") {
             Group {
-                Button("Settings…") { openSettings() }
+                Button("Settings…") { appDelegate.showSettingsWindow() }
                 Divider()
                 Text(model.statusMessage)
                     .lineLimit(3)
@@ -37,7 +27,37 @@ struct ContextRouteApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var settingsWindow: NSWindow?
+
+    func showSettingsWindow() {
+        if let settingsWindow {
+            NSApp.activate(ignoringOtherApps: true)
+            settingsWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        let hostingController = NSHostingController(
+            rootView: SettingsView(model: RouterModel.shared)
+                .frame(width: 760, height: 540))
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false)
+        window.contentViewController = hostingController
+        window.title = "ContextRoute"
+        window.toolbarStyle = .unifiedCompact
+        window.minSize = NSSize(width: 700, height: 450)
+        window.isReleasedWhenClosed = false
+        window.center()
+        settingsWindow = window
+
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSAppleEventManager.shared().setEventHandler(
             self,
