@@ -664,8 +664,6 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
         private static let toolbarIdentifier = NSToolbar.Identifier("ContextRoute.SettingsToolbar")
         private static let sidebarIdentifier = NSToolbarItem.Identifier("ContextRoute.SidebarToggle")
         private static let navigationIdentifier = NSToolbarItem.Identifier("ContextRoute.Navigation")
-        private static let backIdentifier = NSToolbarItem.Identifier("ContextRoute.Back")
-        private static let forwardIdentifier = NSToolbarItem.Identifier("ContextRoute.Forward")
         private static let titleIdentifier = NSToolbarItem.Identifier("ContextRoute.SectionTitle")
         private static let refreshIdentifier = NSToolbarItem.Identifier("ContextRoute.Refresh")
 
@@ -680,7 +678,8 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
         private var onForward: () -> Void = {}
         private var onRefresh: () -> Void = {}
         private var sidebarItem: NSToolbarItem?
-        private var navigationItem: NSToolbarItemGroup?
+        private weak var sidebarButton: NSButton?
+        private weak var navigationControl: NSSegmentedControl?
         private var titleItem: NSToolbarItem?
         private var titleField: NSTextField?
 
@@ -712,7 +711,7 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             self.window = window
             window.title = title
             window.titleVisibility = .hidden
-            window.toolbarStyle = .unifiedCompact
+            window.toolbarStyle = .unified
 
             guard window.toolbar?.identifier != Self.toolbarIdentifier else { return }
 
@@ -763,37 +762,38 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
                     symbol: sidebarSymbol,
                     action: #selector(toggleSidebar(_:)))
                 sidebarItem = item
+                sidebarButton = item.view as? NSButton
                 return item
 
             case Self.navigationIdentifier:
-                let back = makeItem(
-                    identifier: Self.backIdentifier,
-                    label: ContextRouteLocalization.string("Back"),
-                    symbol: "chevron.backward",
-                    action: #selector(goBack(_:)))
-                let forward = makeItem(
-                    identifier: Self.forwardIdentifier,
-                    label: ContextRouteLocalization.string("Forward"),
-                    symbol: "chevron.forward",
-                    action: #selector(goForward(_:)))
-                back.isEnabled = canNavigateBack
-                forward.isEnabled = canNavigateForward
+                let control = LargeNavigationSegmentedControl(frame: NSRect(x: 0, y: 0, width: 96, height: 40))
+                control.segmentCount = 2
+                control.segmentStyle = .automatic
+                control.trackingMode = .momentary
+                control.controlSize = .large
+                control.setImage(toolbarImage("chevron.backward", label: ContextRouteLocalization.string("Back")), forSegment: 0)
+                control.setImage(toolbarImage("chevron.forward", label: ContextRouteLocalization.string("Forward")), forSegment: 1)
+                control.setWidth(48, forSegment: 0)
+                control.setWidth(48, forSegment: 1)
+                control.setEnabled(canNavigateBack, forSegment: 0)
+                control.setEnabled(canNavigateForward, forSegment: 1)
+                control.setAccessibilityLabel(ContextRouteLocalization.string("Back and forward"))
+                control.target = self
+                control.action = #selector(navigate(_:))
 
-                let group = NSToolbarItemGroup(itemIdentifier: itemIdentifier)
-                group.label = ContextRouteLocalization.string("Back and forward")
-                group.paletteLabel = group.label
-                group.controlRepresentation = .expanded
-                group.selectionMode = .momentary
-                group.subitems = [back, forward]
-                navigationItem = group
-                return group
+                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                item.label = ContextRouteLocalization.string("Back and forward")
+                item.paletteLabel = item.label
+                item.view = control
+                navigationControl = control
+                return item
 
             case Self.titleIdentifier:
                 let item = NSToolbarItem(itemIdentifier: itemIdentifier)
                 item.label = title
                 item.paletteLabel = title
                 let field = NSTextField(labelWithString: title)
-                field.font = .systemFont(ofSize: 16, weight: .semibold)
+                field.font = .systemFont(ofSize: 15, weight: .semibold)
                 field.lineBreakMode = .byTruncatingTail
                 field.maximumNumberOfLines = 1
                 field.setContentHuggingPriority(.required, for: .horizontal)
@@ -834,24 +834,36 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             item.label = label
             item.paletteLabel = label
             item.toolTip = label
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .medium))
-            item.target = self
-            item.action = action
+            let button = LargeToolbarButton(image: toolbarImage(symbol, label: label), target: self, action: action)
+            button.bezelStyle = .toolbar
+            button.controlSize = .large
+            button.isBordered = true
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyDown
+            button.setButtonType(.momentaryPushIn)
+            button.setAccessibilityLabel(label)
+            button.toolTip = label
+            button.frame = NSRect(x: 0, y: 0, width: 48, height: 40)
+            item.view = button
             return item
         }
 
+        private func toolbarImage(_ symbol: String, label: String) -> NSImage {
+            NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
+                ?? NSImage()
+        }
+
         private func updateToolbarItems() {
-            if let sidebarItem {
-                sidebarItem.image = NSImage(systemSymbolName: sidebarSymbol, accessibilityDescription: sidebarLabel)?
-                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .medium))
+            if let sidebarItem, let sidebarButton {
+                sidebarButton.image = toolbarImage(sidebarSymbol, label: sidebarLabel)
                 sidebarItem.label = sidebarLabel
                 sidebarItem.paletteLabel = sidebarLabel
                 sidebarItem.toolTip = sidebarLabel
             }
-            if let navigationItem, navigationItem.subitems.count == 2 {
-                navigationItem.subitems[0].isEnabled = canNavigateBack
-                navigationItem.subitems[1].isEnabled = canNavigateForward
+            if let navigationControl {
+                navigationControl.setEnabled(canNavigateBack, forSegment: 0)
+                navigationControl.setEnabled(canNavigateForward, forSegment: 1)
             }
             if let titleField {
                 titleField.stringValue = title
@@ -873,7 +885,17 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
 
         @objc private func toggleSidebar(_ sender: Any?) {
             guard let visibility else { return }
-            visibility.wrappedValue = visibility.wrappedValue == .detailOnly ? .all : .detailOnly
+            withAnimation(.easeInOut(duration: 0.4)) {
+                visibility.wrappedValue = visibility.wrappedValue == .detailOnly ? .all : .detailOnly
+            }
+        }
+
+        @objc private func navigate(_ sender: NSSegmentedControl) {
+            switch sender.selectedSegment {
+            case 0: goBack(sender)
+            case 1: goForward(sender)
+            default: break
+            }
         }
 
         @objc private func goBack(_ sender: Any?) {
@@ -891,6 +913,14 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             onRefresh()
         }
     }
+}
+
+private final class LargeToolbarButton: NSButton {
+    override var intrinsicContentSize: NSSize { NSSize(width: 48, height: 40) }
+}
+
+private final class LargeNavigationSegmentedControl: NSSegmentedControl {
+    override var intrinsicContentSize: NSSize { NSSize(width: 96, height: 40) }
 }
 
 private final class ToolbarAnchorView: NSView {

@@ -48,8 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false)
         window.contentViewController = hostingController
         window.title = "ContextRoute"
-        window.titlebarAppearsTransparent = true
-        window.toolbarStyle = .unifiedCompact
+        window.titlebarAppearsTransparent = false
+        window.toolbarStyle = .unified
         window.minSize = NSSize(width: 700, height: 450)
         window.isReleasedWhenClosed = false
         window.center()
