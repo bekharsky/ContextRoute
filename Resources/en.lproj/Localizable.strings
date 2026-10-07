@@ -202,3 +202,5 @@
 "Profile folder" = "Profile folder";
 "Use default folder" = "Use default folder";
 "Choose the folder containing %@, not an individual profile folder." = "Choose the folder containing %@, not an individual profile folder.";
+"Expanded" = "Expanded";
+"Collapsed" = "Collapsed";

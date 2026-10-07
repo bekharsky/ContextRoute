@@ -202,3 +202,5 @@
 "Profile folder" = "Папка профилей";
 "Use default folder" = "Стандартная папка";
 "Choose the folder containing %@, not an individual profile folder." = "Выбери папку с %@, а не папку отдельного профиля.";
+"Expanded" = "Развёрнуто";
+"Collapsed" = "Свёрнуто";

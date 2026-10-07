@@ -45,12 +45,33 @@ struct RouteEditorView: View {
         guard let browser = selectedBrowser, let defaultFolder = BrowserCatalog.defaultUserDataDirectory(for: browser) else { return true }
         return userDataDirectory.isEmpty || BrowserCatalog.expandHome(userDataDirectory) == defaultFolder
     }
+    private var browserOptions: [RouteEditorPopup.Option] {
+        var options = browsers.map { RouteEditorPopup.Option(id: $0.bundleIdentifier, title: $0.name) }
+        if selectedBrowser == nil, !browserBundleIdentifier.isEmpty {
+            options.insert(.init(id: browserBundleIdentifier,
+                title: ContextRouteLocalization.format("%@ (not installed)", arguments: [route?.browserName ?? browserBundleIdentifier])), at: 0)
+        }
+        if options.isEmpty {
+            options.append(.init(id: "", title: ContextRouteLocalization.string("Choose browser")))
+        }
+        return options
+    }
+    private var profileOptions: [RouteEditorPopup.Option] {
+        var options = [RouteEditorPopup.Option(id: "", title: ContextRouteLocalization.string("Use browser default"))]
+        if !profileIdentifier.isEmpty, !profileSelectionIsValid {
+            let name = route?.profileIdentifier == profileIdentifier ? (route?.profileName ?? profileIdentifier) : profileIdentifier
+            options.append(.init(id: profileIdentifier,
+                title: isScanning || profileScan == nil ? name : ContextRouteLocalization.format("%@ (unavailable)", arguments: [name])))
+        }
+        options += profiles.map { RouteEditorPopup.Option(id: $0.id, title: $0.name) }
+        return options
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             header
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
                     sourceAppCard
                     browserCard
                     if !sourceBundleIdentifier.isEmpty || selectedBrowser.map({ BrowserCatalog.supportsProfiles(for: $0) }) == true {
@@ -67,8 +88,8 @@ struct RouteEditorView: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                .padding(.horizontal, RouteEditorLayout.windowInset)
+                .padding(.bottom, RouteEditorLayout.sectionSpacing)
             }
             .scrollBounceBehavior(.basedOnSize)
             .scrollIndicators(.visible)
@@ -91,53 +112,49 @@ struct RouteEditorView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(route == nil ? LocalizedStringKey("New app route") : LocalizedStringKey("Edit app route"))
                 .font(.title2.weight(.semibold))
             SectionIntro("Choose a source app, browser, and optional profile.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 16)
+        .padding(.horizontal, RouteEditorLayout.windowInset)
+        .padding(.top, RouteEditorLayout.windowInset)
+        .padding(.bottom, RouteEditorLayout.sectionSpacing)
     }
 
     private var sourceAppCard: some View {
-        SettingsCard {
+        SettingsCard(inset: RouteEditorLayout.cardInset) {
             formRow("Source app") {
-                HStack(spacing: 8) {
-                    AppIconView(appURL: BrowserCatalog.applicationURL(bundleIdentifier: sourceBundleIdentifier), symbol: "app.fill", size: 32)
+                HStack(spacing: RouteEditorLayout.controlSpacing) {
+                    AppIconView(appURL: BrowserCatalog.applicationURL(bundleIdentifier: sourceBundleIdentifier), symbol: "app.fill", size: RouteEditorLayout.iconSize)
                     Text(sourceName.isEmpty ? ContextRouteLocalization.string("Choose an app") : sourceName)
                         .font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
-                    Spacer(minLength: 8)
+                    Spacer(minLength: RouteEditorLayout.controlSpacing)
                     Button("Choose app…", action: chooseSourceApplication).buttonStyle(.bordered).fixedSize()
+                    activitySpace
                 }
             }
         }
     }
 
     private var browserCard: some View {
-        SettingsCard {
-            VStack(alignment: .leading, spacing: 12) {
+        SettingsCard(inset: RouteEditorLayout.cardInset) {
+            VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
                 formRow("Browser") {
-                    HStack(spacing: 8) {
-                        AppIconView(appURL: selectedBrowser?.appURL, symbol: "globe", size: 32)
-                        Picker("Browser", selection: $browserBundleIdentifier) {
-                            if selectedBrowser == nil, !browserBundleIdentifier.isEmpty {
-                                Text(ContextRouteLocalization.format("%@ (not installed)", arguments: [route?.browserName ?? browserBundleIdentifier]))
-                                    .tag(browserBundleIdentifier)
-                            }
-                            ForEach(browsers) { browser in Text(browser.name).tag(browser.bundleIdentifier) }
-                        }
-                        .labelsHidden().frame(maxWidth: .infinity)
-                        Color.clear.frame(width: 24, height: 24).accessibilityHidden(true)
+                    HStack(spacing: RouteEditorLayout.controlSpacing) {
+                        AppIconView(appURL: selectedBrowser?.appURL, symbol: "globe", size: RouteEditorLayout.iconSize)
+                        RouteEditorPopup(options: browserOptions, selection: $browserBundleIdentifier,
+                            label: ContextRouteLocalization.string("Browser"), isEnabled: !browsers.isEmpty)
+                            .frame(minWidth: 0, maxWidth: .infinity)
+                        activitySpace
                     }
                 }
                 if let browser = selectedBrowser, BrowserCatalog.supportsProfiles(for: browser) {
                     Divider()
                     formRow("Profile") {
-                        HStack(spacing: 8) {
-                            Color.clear.frame(width: 32, height: 32).accessibilityHidden(true)
+                        HStack(spacing: RouteEditorLayout.controlSpacing) {
+                            Color.clear.frame(width: RouteEditorLayout.iconSize, height: RouteEditorLayout.rowHeight).accessibilityHidden(true)
                             profilePicker
                             profileActivity
                         }
@@ -157,17 +174,14 @@ struct RouteEditorView: View {
     }
 
     private var profilePicker: some View {
-        Picker("Profile", selection: $profileIdentifier) {
-            Text("Use browser default").tag("")
-            if !profileIdentifier.isEmpty, !profileSelectionIsValid {
-                let name = route?.profileIdentifier == profileIdentifier ? (route?.profileName ?? profileIdentifier) : profileIdentifier
-                Text(isScanning || profileScan == nil ? name : ContextRouteLocalization.format("%@ (unavailable)", arguments: [name]))
-                    .tag(profileIdentifier)
-            }
-            ForEach(profiles) { profile in Text(profile.name).tag(profile.id) }
-        }
-        .labelsHidden().frame(maxWidth: .infinity)
-        .disabled(isScanning)
+        RouteEditorPopup(options: profileOptions, selection: $profileIdentifier,
+            label: ContextRouteLocalization.string("Profile"), isEnabled: !isScanning)
+            .frame(minWidth: 0, maxWidth: .infinity)
+    }
+
+    private var activitySpace: some View {
+        Color.clear.frame(width: RouteEditorLayout.activityWidth, height: RouteEditorLayout.rowHeight)
+            .accessibilityHidden(true)
     }
 
     private var profileActivity: some View {
@@ -186,13 +200,13 @@ struct RouteEditorView: View {
                     .help("Loading profiles…")
             }
         }
-        .frame(width: 24, height: 24)
+        .frame(width: RouteEditorLayout.activityWidth, height: RouteEditorLayout.rowHeight)
     }
 
     @ViewBuilder
     private var profileFeedback: some View {
         if let failure = profileScan?.failureMessage {
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: RouteEditorLayout.controlSpacing) {
                 Label(failure, systemImage: "exclamationmark.triangle.fill")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -206,9 +220,9 @@ struct RouteEditorView: View {
     }
 
     private var advancedCard: some View {
-        SettingsCard {
+        SettingsCard(inset: 0) {
             DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
                     if !sourceBundleIdentifier.isEmpty {
                         formRow("App identifier", alignment: .top) {
                             Text(sourceBundleIdentifier).font(.caption.monospaced())
@@ -218,10 +232,10 @@ struct RouteEditorView: View {
                     if let browser = selectedBrowser, BrowserCatalog.supportsProfiles(for: browser) {
                         if !sourceBundleIdentifier.isEmpty { Divider() }
                         formRow("Profile folder", alignment: .top) {
-                            VStack(alignment: .leading, spacing: 8) {
+                            VStack(alignment: .leading, spacing: RouteEditorLayout.controlSpacing) {
                                 Text(userDataDirectory).font(.caption.monospaced()).foregroundStyle(.secondary)
                                     .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                                HStack(spacing: 8) {
+                                HStack(spacing: RouteEditorLayout.controlSpacing) {
                                     Button("Profile folder…", action: chooseUserDataDirectory).buttonStyle(.bordered)
                                     Button("Use default folder") {
                                         userDataDirectory = BrowserCatalog.defaultUserDataDirectory(for: browser) ?? ""
@@ -239,23 +253,24 @@ struct RouteEditorView: View {
                         }
                     }
                 }
-                .padding(.top, 12)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
+            .disclosureGroupStyle(RouteEditorDisclosureStyle())
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
     private func formRow<Content: View>(_ title: LocalizedStringKey, alignment: VerticalAlignment = .center,
         @ViewBuilder content: () -> Content) -> some View {
-        HStack(alignment: alignment, spacing: 12) {
-            Text(title).frame(width: 96, alignment: .leading)
+        HStack(alignment: alignment, spacing: RouteEditorLayout.sectionSpacing) {
+            Text(title).frame(width: RouteEditorLayout.labelWidth, alignment: .leading)
             content().frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(minHeight: RouteEditorLayout.rowHeight, alignment: .leading)
     }
 
     private var footer: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: RouteEditorLayout.controlSpacing) {
             Spacer()
             Button("Cancel") { dismiss() }.buttonStyle(.bordered).keyboardShortcut(.cancelAction)
             Button(replacement == nil ? LocalizedStringKey("Save route") : LocalizedStringKey("Replace route")) {
@@ -264,9 +279,8 @@ struct RouteEditorView: View {
             .primaryActionStyle().keyboardShortcut(.defaultAction)
             .disabled(sourceBundleIdentifier.isEmpty || selectedBrowser == nil || !profileSelectionIsValid || isScanning || !model.canEditSettings)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 12)
-        .padding(.bottom, 20)
+        .padding(.horizontal, RouteEditorLayout.windowInset)
+        .padding(.vertical, RouteEditorLayout.cardInset)
     }
 
     private func chooseSourceApplication() {
