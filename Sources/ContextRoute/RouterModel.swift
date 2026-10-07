@@ -2,57 +2,87 @@ import AppKit
 import Combine
 import Foundation
 
+struct RoutingIssue: Identifiable {
+    let id = UUID()
+    let message: LocalizedMessage
+    let url: URL
+    let routeID: UUID?
+    let needsAttention: Bool
+}
+
 @MainActor
 final class RouterModel: ObservableObject {
     static let shared = RouterModel()
 
-    @Published private(set) var sourceRoutes: [SourceRoute]
-    @Published private(set) var urlAppOverrides: [URLAppOverride]
+    enum Recovery { case backup, unreadable }
+    @Published private(set) var sourceRoutes: [SourceRoute] = []
+    @Published private(set) var urlAppOverrides: [URLAppOverride] = URLAppOverride.defaults
     @Published private(set) var fallbackBrowserBundleIdentifier: String?
     @Published private(set) var fallbackBrowserName: String?
     @Published private(set) var isContextRouteDefaultHandler = false
     @Published private(set) var isSettingDefaultHandler = false
     @Published private(set) var defaultHandlerError: LocalizedMessage?
-    @Published private(set) var localizedStatus = LocalizedMessage(key: "No links have been routed yet.")
-    @Published var lastRoute = ""
+    @Published private(set) var storageError: LocalizedMessage?
+    @Published private(set) var recovery: Recovery?
+    @Published private(set) var routingIssue: RoutingIssue?
+    @Published private(set) var routeIssues: [UUID: LocalizedMessage] = [:]
+    @Published private(set) var canUndo = false
+    @Published private(set) var canRedo = false
+    var onRoutingFailure: (() -> Void)?
 
-    var statusMessage: String { localizedStatus.text }
+    private let store = ConfigurationStore()
+    private let launcher = BrowserLauncher()
+    private struct HistoryEntry {
+        let configuration: RouterConfiguration
+        let actionName: String
+    }
+    private var undoHistory: [HistoryEntry] = []
+    private var redoHistory: [HistoryEntry] = []
+    private let logURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("Logs/ContextRoute/router.log")
 
-    private let configURL: URL
-    private let logURL: URL
+    var canEditSettings: Bool { recovery == nil }
+    var undoActionName: String { undoHistory.last.map { ContextRouteLocalization.string($0.actionName) } ?? "" }
+    var configuration: RouterConfiguration {
+        RouterConfiguration(sourceRoutes: sourceRoutes, urlAppOverrides: urlAppOverrides,
+            fallbackBrowserBundleIdentifier: fallbackBrowserBundleIdentifier, fallbackBrowserName: fallbackBrowserName)
+    }
 
     private init() {
-        let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ContextRoute", isDirectory: true)
-        try? FileManager.default.createDirectory(at: support, withIntermediateDirectories: true)
-        configURL = support.appendingPathComponent("config.json")
-        logURL = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("Logs/ContextRoute/router.log")
-
-        if let data = try? Data(contentsOf: configURL),
-           let config = try? JSONDecoder().decode(RouterConfiguration.self, from: data) {
-            sourceRoutes = config.sourceRoutes
-            urlAppOverrides = Self.mergeBuiltInOverrides(config.urlAppOverrides)
-            fallbackBrowserBundleIdentifier = config.fallbackBrowserBundleIdentifier
-            fallbackBrowserName = config.fallbackBrowserName
-        } else {
-            sourceRoutes = []
-            urlAppOverrides = URLAppOverride.defaults
-            fallbackBrowserBundleIdentifier = nil
-            fallbackBrowserName = nil
-        }
-
-        captureCurrentDefaultBrowserIfPossible()
+        reloadSettings()
+        if canEditSettings { captureCurrentDefaultBrowserIfPossible() }
         refreshDefaultHandlerStatus()
     }
+
+    func reloadSettings() {
+        do {
+            let loaded = try store.load()
+            apply(loaded.configuration)
+            recovery = loaded.recoveredFromBackup ? .backup : nil
+            storageError = loaded.recoveredFromBackup
+                ? LocalizedMessage(key: "Settings could not be read. A backup is available; restore it to continue editing.") : nil
+        } catch {
+            recovery = .unreadable
+            storageError = LocalizedMessage(key: "Couldn't read settings: %@. The original file has been kept.", arguments: [error.localizedDescription])
+        }
+        undoHistory.removeAll()
+        redoHistory.removeAll()
+        updateUndoAvailability()
+    }
+
+    func restoreBackup() {
+        guard recovery == .backup else { return }
+        _ = commit(configuration, actionName: nil, allowRecovery: true)
+    }
+
+    func clearStorageError() { if recovery == nil { storageError = nil } }
+    func dismissRoutingIssue() { routingIssue = nil }
 
     private static func mergeBuiltInOverrides(_ saved: [URLAppOverride]) -> [URLAppOverride] {
         let savedByID = Dictionary(saved.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
         var merged = URLAppOverride.defaults.map { builtIn in
             var updated = builtIn
-            if let prior = savedByID[builtIn.id] {
-                updated.isEnabled = prior.isEnabled
-            }
+            if let prior = savedByID[builtIn.id] { updated.isEnabled = prior.isEnabled }
             return updated
         }
         let builtInIDs = Set(URLAppOverride.defaults.map(\.id))
@@ -67,68 +97,139 @@ final class RouterModel: ObservableObject {
                   let bundleID = Bundle(url: appURL)?.bundleIdentifier else { return false }
             return bundleID == Bundle.main.bundleIdentifier
         }
-        if isContextRouteDefaultHandler != isDefault {
-            isContextRouteDefaultHandler = isDefault
-        }
+        if isContextRouteDefaultHandler != isDefault { isContextRouteDefaultHandler = isDefault }
     }
 
-    func add(_ route: SourceRoute) {
-        sourceRoutes.removeAll { $0.sourceBundleIdentifier == route.sourceBundleIdentifier }
-        sourceRoutes.append(route)
-        sourceRoutes.sort { $0.sourceName.localizedCaseInsensitiveCompare($1.sourceName) == .orderedAscending }
-        persist()
-        setStatus("Rule saved for %@.", arguments: [route.sourceName])
+    @discardableResult
+    func add(_ route: SourceRoute) -> Bool {
+        var updated = configuration
+        updated.sourceRoutes.removeAll { $0.id == route.id || $0.sourceBundleIdentifier == route.sourceBundleIdentifier }
+        updated.sourceRoutes.append(route)
+        updated.sourceRoutes.sort { $0.sourceName.localizedCaseInsensitiveCompare($1.sourceName) == .orderedAscending }
+        return commit(updated, actionName: "Save app route")
     }
 
     func remove(_ route: SourceRoute) {
-        sourceRoutes.removeAll { $0.id == route.id }
-        persist()
+        var updated = configuration
+        updated.sourceRoutes.removeAll { $0.id == route.id }
+        _ = commit(updated, actionName: "Delete app route")
+    }
+
+    func setRouteEnabled(id: UUID, enabled: Bool) {
+        var updated = configuration
+        guard let index = updated.sourceRoutes.firstIndex(where: { $0.id == id }) else { return }
+        updated.sourceRoutes[index].isEnabled = enabled
+        _ = commit(updated, actionName: "Change app route")
     }
 
     func setOverrideEnabled(id: String, enabled: Bool) {
-        guard let index = urlAppOverrides.firstIndex(where: { $0.id == id }) else { return }
-        urlAppOverrides[index].isEnabled = enabled
-        persist()
+        var updated = configuration
+        guard let index = updated.urlAppOverrides.firstIndex(where: { $0.id == id }) else { return }
+        updated.urlAppOverrides[index].isEnabled = enabled
+        _ = commit(updated, actionName: "Change app handler")
     }
 
-    func setFallbackBrowser(_ browser: BrowserInfo?) {
-        defaultHandlerError = nil
-        fallbackBrowserBundleIdentifier = browser?.bundleIdentifier
-        fallbackBrowserName = browser?.name
-        persist()
-        if let browser {
-            setStatus("Fallback browser: %@.", arguments: [browser.name])
-        } else {
-            setStatus("No fallback browser selected.")
+    @discardableResult
+    func setFallbackBrowser(_ browser: BrowserInfo?, recordUndo: Bool = true) -> Bool {
+        var updated = configuration
+        updated.fallbackBrowserBundleIdentifier = browser?.bundleIdentifier
+        updated.fallbackBrowserName = browser?.name
+        if commit(updated, actionName: recordUndo ? "Change fallback browser" : nil) {
+            defaultHandlerError = nil
+            return true
         }
+        return false
     }
 
     @discardableResult
     func captureCurrentDefaultBrowserIfPossible() -> Bool {
+        guard canEditSettings, fallbackBrowserBundleIdentifier == nil else { return false }
         let sample = URL(string: "https://example.com")!
         guard let appURL = NSWorkspace.shared.urlForApplication(toOpen: sample),
               let bundleID = Bundle(url: appURL)?.bundleIdentifier,
-              bundleID != Bundle.main.bundleIdentifier else { return false }
-        guard let browser = BrowserCatalog.installedBrowsers().first(where: {
-            $0.bundleIdentifier.caseInsensitiveCompare(bundleID) == .orderedSame
-        }) else {
-            setStatus("The current link handler isn't recognized as a browser. Choose a fallback browser manually.")
+              bundleID != Bundle.main.bundleIdentifier,
+              let browser = BrowserCatalog.installedBrowsers().first(where: {
+                  $0.bundleIdentifier.caseInsensitiveCompare(bundleID) == .orderedSame
+              }) else { return false }
+        return setFallbackBrowser(browser, recordUndo: false)
+    }
+
+    func readImport(at url: URL) throws -> RouterConfiguration { try store.read(url) }
+
+    @discardableResult
+    func importSettings(_ imported: RouterConfiguration) -> Bool {
+        var merged = imported
+        merged.urlAppOverrides = Self.mergeBuiltInOverrides(imported.urlAppOverrides)
+        return commit(merged, actionName: canEditSettings ? "Import settings" : nil, allowRecovery: true)
+    }
+
+    func exportSettings(to url: URL) throws { try store.export(configuration, to: url) }
+
+    private func apply(_ config: RouterConfiguration) {
+        sourceRoutes = config.sourceRoutes
+        urlAppOverrides = Self.mergeBuiltInOverrides(config.urlAppOverrides)
+        fallbackBrowserBundleIdentifier = config.fallbackBrowserBundleIdentifier
+        fallbackBrowserName = config.fallbackBrowserName
+        refreshRouteAvailability()
+    }
+
+    private func commit(_ updated: RouterConfiguration, actionName: String?, allowRecovery: Bool = false) -> Bool {
+        guard canEditSettings || allowRecovery else { return false }
+        let previous = configuration
+        do {
+            try store.save(updated, preserveDamagedFile: allowRecovery)
+            storageError = nil
+            recovery = nil
+            apply(updated)
+            if let actionName {
+                undoHistory.append(HistoryEntry(configuration: previous, actionName: actionName))
+                if undoHistory.count > 50 { undoHistory.removeFirst() }
+                redoHistory.removeAll()
+            }
+            updateUndoAvailability()
+            return true
+        } catch {
+            storageError = LocalizedMessage(key: "Couldn't save settings: %@", arguments: [error.localizedDescription])
             return false
         }
+    }
 
-        fallbackBrowserBundleIdentifier = browser.bundleIdentifier
-        fallbackBrowserName = browser.name
-        persist()
-        return true
+    private func updateUndoAvailability() {
+        canUndo = canEditSettings && !undoHistory.isEmpty
+        canRedo = canEditSettings && !redoHistory.isEmpty
+    }
+
+    // Save first so a failed undo/redo keeps both the current settings and history intact.
+    func undo() {
+        guard canEditSettings, let entry = undoHistory.last else { return }
+        let current = configuration
+        guard commit(entry.configuration, actionName: nil) else { return }
+        undoHistory.removeLast()
+        redoHistory.append(HistoryEntry(configuration: current, actionName: entry.actionName))
+        updateUndoAvailability()
+    }
+
+    func redo() {
+        guard canEditSettings, let entry = redoHistory.last else { return }
+        let current = configuration
+        guard commit(entry.configuration, actionName: nil) else { return }
+        redoHistory.removeLast()
+        undoHistory.append(HistoryEntry(configuration: current, actionName: entry.actionName))
+        updateUndoAvailability()
+    }
+
+    func refreshRouteAvailability() {
+        routeIssues = Dictionary(uniqueKeysWithValues: sourceRoutes.compactMap { route in
+            RoutePlanner.issue(for: route).map { (route.id, $0) }
+        })
     }
 
     func registerAsDefaultHandler() {
-        guard !isSettingDefaultHandler else { return }
+        guard !isSettingDefaultHandler, canEditSettings else { return }
         if fallbackBrowserBundleIdentifier == nil { _ = captureCurrentDefaultBrowserIfPossible() }
         defaultHandlerError = nil
-        guard fallbackBrowserBundleIdentifier != nil else {
+        guard BrowserCatalog.installedBrowsers().contains(where: { $0.bundleIdentifier == fallbackBrowserBundleIdentifier }) else {
             defaultHandlerError = LocalizedMessage(key: "Choose a fallback browser first.")
-            setStatus("Choose a fallback browser first.")
             return
         }
         isSettingDefaultHandler = true
@@ -144,7 +245,6 @@ final class RouterModel: ObservableObject {
                         self.defaultHandlerError = LocalizedMessage(
                             key: "macOS couldn't set the link handler: %@", arguments: [error.localizedDescription])
                         self.refreshDefaultHandlerStatus()
-                        self.setStatus("macOS couldn't set the link handler: %@", arguments: [error.localizedDescription])
                         return
                     }
                     NSWorkspace.shared.setDefaultApplication(
@@ -157,9 +257,6 @@ final class RouterModel: ObservableObject {
                                     self.defaultHandlerError = LocalizedMessage(
                                         key: "HTTPS is assigned; HTTP couldn't be assigned: %@",
                                         arguments: [secondError.localizedDescription])
-                                    self.setStatus("HTTPS is assigned; HTTP couldn't be assigned: %@", arguments: [secondError.localizedDescription])
-                                } else {
-                                    self.setStatus("ContextRoute is now the default handler.")
                                 }
                             }
                         }
@@ -167,115 +264,47 @@ final class RouterModel: ObservableObject {
             }
     }
 
+    func decision(for url: URL, sourceBundleIdentifier: String?) -> RouteDecision {
+        RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration)
+    }
+
     func route(_ url: URL, sourceBundleIdentifier: String?) {
-        guard ["http", "https"].contains(url.scheme?.lowercased() ?? "") else {
-            openFallback(url, reason: ContextRouteLocalization.string("Unsupported link type"))
+        let result = decision(for: url, sourceBundleIdentifier: sourceBundleIdentifier)
+        if let warning = result.warnings.first {
+            routingIssue = RoutingIssue(message: warning, url: url, routeID: result.sourceRouteID, needsAttention: false)
+        }
+        if result.kind == .unavailable {
+            reportFailure(result.explanation, url: url, routeID: result.sourceRouteID)
             return
         }
-
-        if let override = urlAppOverrides.first(where: { $0.isEnabled && $0.matches(url) }) {
-            if let appURL = BrowserCatalog.findApplication(for: override) {
-                let targetName = override.name
-                lastRoute = "\(url.host ?? override.name) → \(targetName)"
-                setStatus("Sent %@ to %@.", arguments: [url.host ?? "link", targetName])
-                log("URL override \(url.host ?? "") → \(targetName)")
-                let targetURL = override.translatedURL(url)
-                open(targetURL, inApplicationAt: appURL, fallbackOnError: true, reason: "URL override: \(targetName)")
-                return
-            } else {
-                log("URL override target missing: \(override.name) | \(safeURLLabel(url))")
-                setStatus("%@ isn't installed; using the normal route for this link.", arguments: [override.name])
-            }
-        }
-
-        if let sourceBundleIdentifier,
-           let route = sourceRoutes.first(where: { $0.sourceBundleIdentifier == sourceBundleIdentifier }),
-           let appURL = BrowserCatalog.applicationURL(bundleIdentifier: route.browserBundleIdentifier) {
-            let target = route.profileName.map { "\(route.browserName) · \($0)" } ?? route.browserName
-            lastRoute = "\(route.sourceName) → \(target)"
-            setStatus("Last link: %@", arguments: [lastRoute])
-            log("\(lastRoute) | \(safeURLLabel(url))")
-            open(url, in: route, appURL: appURL)
-            return
-        }
-
-        let sourceName = sourceBundleIdentifier.map(displayName(forBundleIdentifier:)) ?? "Unknown app"
-        lastRoute = "\(sourceName) → \(fallbackBrowserName ?? "Fallback browser")"
-        setStatus("No rule for %@; sending to the fallback browser.", arguments: [sourceName])
-        log("\(lastRoute) | \(safeURLLabel(url))")
-        openFallback(url, reason: ContextRouteLocalization.string("No source app rule"))
-    }
-
-    private func open(_ url: URL, in route: SourceRoute, appURL: URL) {
-        guard let profileID = route.profileIdentifier else {
-            open(url, inApplicationAt: appURL, fallbackOnError: true, reason: route.browserName)
-            return
-        }
-
-        let browser = BrowserInfo(
-            bundleIdentifier: route.browserBundleIdentifier,
-            name: route.browserName,
-            appURL: appURL)
-        guard var arguments = BrowserCatalog.profileLaunchArguments(
-            browser: browser,
-            profileIdentifier: profileID,
-            userDataDirectory: route.userDataDirectory),
-              let executableURL = BrowserCatalog.executableURL(for: appURL) else {
-            open(url, inApplicationAt: appURL, fallbackOnError: true, reason: route.browserName)
-            return
-        }
-
-        arguments.append(url.absoluteString)
-        log("Launching \(route.browserName) with profile ID \(profileID)")
-        launchProcess(
-            executableURL: executableURL,
-            arguments: arguments,
-            url: url,
-            reason: ContextRouteLocalization.format(
-                "Profile %@", arguments: [route.profileName ?? profileID]))
-    }
-
-    private func launchProcess(executableURL: URL, arguments: [String], url: URL, reason: String) {
-        let process = Process()
-        process.executableURL = executableURL
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        process.standardError = FileHandle.nullDevice
-        do {
-            try process.run()
-        } catch {
-            setStatus("Couldn't launch the selected profile; using the fallback browser.")
-            log("\(reason) launch failed: \(error.localizedDescription)")
-            openFallback(url, reason: ContextRouteLocalization.string("Profile launch failed"))
+        log("\(result.kindName) → \(result.targetName) | \(safeURLLabel(url))")
+        launcher.open(result.destination) { [weak self] error in
+            guard let self, let error else { return }
+            self.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@", arguments: [result.targetName, error.localizedDescription]),
+                url: url, routeID: result.sourceRouteID)
         }
     }
 
-    private func open(_ url: URL, inApplicationAt appURL: URL, fallbackOnError: Bool, reason: String) {
-        let config = NSWorkspace.OpenConfiguration()
-        config.activates = true
-        config.addsToRecentItems = false
-        NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: config) { [weak self] _, error in
-            guard let error else { return }
-            Task { @MainActor in
-                self?.log("Open \(reason) failed: \(error.localizedDescription)")
-                if fallbackOnError {
-                    let fallbackReason = ContextRouteLocalization.format(
-                        "Routing failed: %@", arguments: [reason])
-                    self?.openFallback(url, reason: fallbackReason)
-                }
-            }
+    func retryInFallback(_ url: URL) {
+        var fallbackOnly = configuration
+        fallbackOnly.sourceRoutes = []
+        fallbackOnly.urlAppOverrides = []
+        let result = RoutePlanner.decide(url, sourceBundleIdentifier: nil, configuration: fallbackOnly)
+        guard result.kind != .unavailable else {
+            reportFailure(result.explanation, url: url, routeID: nil)
+            return
+        }
+        routingIssue = nil
+        launcher.open(result.destination) { [weak self] error in
+            if let error { self?.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@",
+                arguments: [result.targetName, error.localizedDescription]), url: url, routeID: nil) }
         }
     }
 
-    private func openFallback(_ url: URL, reason: String) {
-        guard let bundleID = fallbackBrowserBundleIdentifier,
-              let appURL = BrowserCatalog.applicationURL(bundleIdentifier: bundleID) else {
-            setStatus("Select a fallback browser in ContextRoute Settings.")
-            log("No fallback browser for \(safeURLLabel(url)) (\(reason))")
-            return
-        }
-        lastRoute = "\(reason) → \(fallbackBrowserName ?? "Browser")"
-        open(url, inApplicationAt: appURL, fallbackOnError: false, reason: lastRoute)
+    private func reportFailure(_ message: LocalizedMessage, url: URL, routeID: UUID?) {
+        routingIssue = RoutingIssue(message: message, url: url, routeID: routeID, needsAttention: true)
+        log("Routing failed | \(safeURLLabel(url))")
+        onRoutingFailure?()
     }
 
     private func safeURLLabel(_ url: URL) -> String {
@@ -283,44 +312,22 @@ final class RouterModel: ObservableObject {
         return url.scheme ?? "URL"
     }
 
-    private func displayName(forBundleIdentifier bundleID: String) -> String {
-        if let appURL = BrowserCatalog.applicationURL(bundleIdentifier: bundleID) {
-            return (Bundle(url: appURL)?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
-                ?? appURL.deletingPathExtension().lastPathComponent
-        }
-        return bundleID
-    }
-
-    private func persist() {
-        let configuration = RouterConfiguration(
-            sourceRoutes: sourceRoutes,
-            urlAppOverrides: urlAppOverrides,
-            fallbackBrowserBundleIdentifier: fallbackBrowserBundleIdentifier,
-            fallbackBrowserName: fallbackBrowserName)
-        do {
-            let data = try JSONEncoder().encode(configuration)
-            try data.write(to: configURL, options: .atomic)
-        } catch {
-            setStatus("Couldn't save settings: %@", arguments: [error.localizedDescription])
-        }
-    }
-
-    private func setStatus(_ key: String, arguments: [String] = []) {
-        localizedStatus = LocalizedMessage(key: key, arguments: arguments)
-    }
-
     private func log(_ message: String) {
         let directory = logURL.deletingLastPathComponent()
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // Bound the diagnostic log; never record URL paths, query strings or fragments.
+        if let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path)[.size]) as? NSNumber,
+           size.intValue > 1_000_000 {
+            let archive = directory.appendingPathComponent("router.previous.log")
+            try? FileManager.default.removeItem(at: archive)
+            try? FileManager.default.moveItem(at: logURL, to: archive)
+        }
         let line = "\(ISO8601DateFormatter().string(from: Date()))  \(message)\n"
         guard let data = line.data(using: .utf8) else { return }
-        if FileManager.default.fileExists(atPath: logURL.path),
-           let handle = try? FileHandle(forWritingTo: logURL) {
+        if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
             _ = try? handle.seekToEnd()
             try? handle.write(contentsOf: data)
-            try? handle.close()
-        } else {
-            try? data.write(to: logURL, options: .atomic)
-        }
+        } else { try? data.write(to: logURL, options: .atomic) }
     }
 }

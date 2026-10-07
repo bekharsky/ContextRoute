@@ -1,17 +1,17 @@
 import Foundation
 
-struct BrowserProfile: Identifiable, Hashable {
+struct BrowserProfile: Identifiable, Hashable, Sendable {
     let id: String
     let name: String
 }
 
-struct ProfileScanResult {
+struct ProfileScanResult: Sendable {
     let profiles: [BrowserProfile]
     let metadataFileExists: Bool
     let failureMessage: String?
 }
 
-struct BrowserInfo: Identifiable, Hashable {
+struct BrowserInfo: Identifiable, Hashable, Sendable {
     let bundleIdentifier: String
     let name: String
     let appURL: URL
@@ -28,6 +28,39 @@ struct SourceRoute: Identifiable, Codable, Hashable {
     var profileIdentifier: String?
     var profileName: String?
     var userDataDirectory: String?
+    var isEnabled: Bool = true
+
+    private enum CodingKeys: String, CodingKey {
+        case id, sourceBundleIdentifier, sourceName, browserBundleIdentifier, browserName
+        case profileIdentifier, profileName, userDataDirectory, isEnabled
+    }
+
+    init(id: UUID = UUID(), sourceBundleIdentifier: String, sourceName: String,
+         browserBundleIdentifier: String, browserName: String, profileIdentifier: String?,
+         profileName: String?, userDataDirectory: String?, isEnabled: Bool = true) {
+        self.id = id
+        self.sourceBundleIdentifier = sourceBundleIdentifier
+        self.sourceName = sourceName
+        self.browserBundleIdentifier = browserBundleIdentifier
+        self.browserName = browserName
+        self.profileIdentifier = profileIdentifier
+        self.profileName = profileName
+        self.userDataDirectory = userDataDirectory
+        self.isEnabled = isEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        sourceBundleIdentifier = try values.decode(String.self, forKey: .sourceBundleIdentifier)
+        sourceName = try values.decode(String.self, forKey: .sourceName)
+        browserBundleIdentifier = try values.decode(String.self, forKey: .browserBundleIdentifier)
+        browserName = try values.decode(String.self, forKey: .browserName)
+        profileIdentifier = try values.decodeIfPresent(String.self, forKey: .profileIdentifier)
+        profileName = try values.decodeIfPresent(String.self, forKey: .profileName)
+        userDataDirectory = try values.decodeIfPresent(String.self, forKey: .userDataDirectory)
+        isEnabled = try values.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
+    }
 }
 
 struct URLHostPattern: Codable, Hashable {
@@ -242,6 +275,7 @@ struct URLAppOverride: Identifiable, Codable, Hashable {
 }
 
 struct RouterConfiguration: Codable {
+    var schemaVersion: Int? = 1
     var sourceRoutes: [SourceRoute] = []
     var urlAppOverrides: [URLAppOverride] = URLAppOverride.defaults
     var fallbackBrowserBundleIdentifier: String?

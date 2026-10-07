@@ -105,6 +105,23 @@ enum BrowserCatalog {
         Bundle(url: appURL)?.executableURL
     }
 
+    static func profileDirectoryExists(for browser: BrowserInfo, profileIdentifier: String, userDataDirectory: String?) -> Bool {
+        guard let configuration = configuration(for: browser) else { return false }
+        let directory: URL
+        switch configuration.engine {
+        case .chromium:
+            guard !profileIdentifier.isEmpty, !profileIdentifier.contains("/"), profileIdentifier != ".", profileIdentifier != ".." else { return false }
+            directory = profileRoot(for: configuration, userDataDirectory: userDataDirectory)
+                .appendingPathComponent(profileIdentifier, isDirectory: true)
+        case .firefox:
+            let path = expandHome(profileIdentifier)
+            guard path.hasPrefix("/") else { return false }
+            directory = URL(fileURLWithPath: path, isDirectory: true)
+        }
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: directory.path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
     static func profileLaunchArguments(
         browser: BrowserInfo,
         profileIdentifier: String,
@@ -130,12 +147,15 @@ enum BrowserCatalog {
 
     static func findApplication(for override: URLAppOverride) -> URL? {
         for bundleID in override.candidateBundleIdentifiers {
-            if let url = applicationURL(bundleIdentifier: bundleID) { return url }
+            if bundleID != Bundle.main.bundleIdentifier,
+               let url = applicationURL(bundleIdentifier: bundleID),
+               FileManager.default.fileExists(atPath: url.path) { return url }
         }
 
-        let hints = override.appNameHints.map { $0.lowercased() }
+        let hints = override.appNameHints.map { $0.lowercased() }.filter { !$0.isEmpty }
         return topLevelApplicationURLs().first { url in
             let bundle = Bundle(url: url)
+            guard bundle?.bundleIdentifier != Bundle.main.bundleIdentifier else { return false }
             let bundleName = (bundle?.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
                 ?? (bundle?.object(forInfoDictionaryKey: "CFBundleName") as? String)
                 ?? url.deletingPathExtension().lastPathComponent

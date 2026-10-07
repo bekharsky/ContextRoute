@@ -5,6 +5,7 @@ import SwiftUI
 struct ContextRouteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = RouterModel.shared
+    @StateObject private var editingCommands = EditingCommandState()
     @AppStorage(InterfaceLanguage.defaultsKey) private var languageRawValue = InterfaceLanguage.english.rawValue
 
     private var interfaceLocale: Locale {
@@ -12,7 +13,8 @@ struct ContextRouteApp: App {
     }
 
     var body: some Scene {
-        MenuBarExtra("ContextRoute", systemImage: "arrow.triangle.branch") {
+        MenuBarExtra("ContextRoute", systemImage: model.routingIssue?.needsAttention == true || model.storageError != nil
+            ? "exclamationmark.triangle" : "arrow.triangle.branch") {
             Group {
                 if !model.isContextRouteDefaultHandler {
                     Button("Make default browser…") { appDelegate.showLinkSetup() }
@@ -37,15 +39,28 @@ struct ContextRouteApp: App {
                     .keyboardShortcut(",", modifiers: .command)
                     .environment(\.locale, interfaceLocale)
             }
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") { editingCommands.undo(model) }
+                    .keyboardShortcut("z", modifiers: .command)
+                    .disabled(editingCommands.hasTextEditor ? !editingCommands.canUndo : !model.canUndo)
+                    .environment(\.locale, interfaceLocale)
+                Button("Redo") { editingCommands.redo(model) }
+                    .keyboardShortcut("z", modifiers: [.command, .shift])
+                    .disabled(editingCommands.hasTextEditor ? !editingCommands.canRedo : !model.canRedo)
+                    .environment(\.locale, interfaceLocale)
+            }
+            TextEditingCommands()
         }
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     static let showLinkSetupNotification = Notification.Name("ContextRoute.ShowLinkSetup")
+    static let showRoutingFailureNotification = Notification.Name("ContextRoute.ShowRoutingFailure")
     private var settingsWindow: NSWindow?
     private let focusVisibility = SettingsFocusVisibility()
+    private let textUndoManager = UndoManager()
 
     func showSettingsWindow() {
         RouterModel.shared.refreshDefaultHandlerStatus()
@@ -71,6 +86,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.minSize = NSSize(width: 700, height: 450)
         window.collectionBehavior.insert(.moveToActiveSpace)
         window.isReleasedWhenClosed = false
+        window.delegate = self
         window.center()
         settingsWindow = window
 
@@ -144,6 +160,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.setActivationPolicy(.accessory)
         NSApp.appearance = AppearanceChoice.current.nativeAppearance
         let model = RouterModel.shared
+        model.onRoutingFailure = { [weak self] in
+            self?.showSettingsWindow()
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(name: Self.showRoutingFailureNotification, object: nil)
+            }
+        }
         _ = model.captureCurrentDefaultBrowserIfPossible()
         model.refreshDefaultHandlerStatus()
         let setupKey = "app.contextroute.hasPresentedInitialSetup"
@@ -155,6 +177,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         RouterModel.shared.refreshDefaultHandlerStatus()
+    }
+
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
+        textUndoManager
     }
 
     @objc func handleGetURL(event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
