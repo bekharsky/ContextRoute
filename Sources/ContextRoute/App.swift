@@ -19,7 +19,7 @@ struct ContextRouteApp: App {
         }
         .defaultSize(width: 760, height: 540)
         .windowResizability(.contentSize)
-        .windowToolbarStyle(.unifiedCompact)
+        .windowToolbarStyle(.unifiedCompact(showsTitle: false))
         .defaultLaunchBehavior(.suppressed)
 
         MenuBarExtra("ContextRoute", systemImage: "arrow.triangle.branch") {

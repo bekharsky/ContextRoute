@@ -146,6 +146,8 @@ struct SettingsView: View {
             .background(Color(nsColor: .textBackgroundColor))
             .navigationTitle(selectedSection.title)
             .toolbar {
+                DefaultToolbarItem(kind: .sidebarToggle, placement: .navigation)
+
                 ToolbarItem(placement: .navigation) {
                     ControlGroup {
                         Button(action: navigateBack) {
@@ -163,13 +165,24 @@ struct SettingsView: View {
                         .disabled(!canNavigateForward)
                     }
                     .controlGroupStyle(.navigation)
+                    .controlSize(.large)
                 }
+
+                ToolbarItem(placement: .navigation) {
+                    Text(selectedSection.title)
+                        .font(.headline)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                }
+
+                ToolbarSpacer(.flexible)
 
                 if selectedSection == .routes || selectedSection == .handlers || selectedSection == .fallback {
                     ToolbarItem(placement: .primaryAction) {
                         Button(action: refreshBrowsers) {
                             Image(systemName: "arrow.clockwise")
                         }
+                        .controlSize(.large)
                         .help(selectedSection == .handlers ? "Refresh installed apps" : "Refresh apps and browsers")
                         .accessibilityLabel(selectedSection == .handlers ? "Refresh installed apps" : "Refresh apps and browsers")
                     }
@@ -177,7 +190,6 @@ struct SettingsView: View {
             }
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
         .preferredColorScheme(appearanceChoice.colorScheme)
         .environment(\.locale, interfaceLanguage.locale)
         .onAppear(perform: syncFallbackSelection)
@@ -581,24 +593,48 @@ private struct RouteRow: View {
             }
             .padding(.leading, 1)
             Spacer(minLength: 8)
-            Button(action: onEdit) {
-                Image(systemName: "pencil")
+            HStack(spacing: 7) {
+                RouteActionButton(symbol: "pencil", title: "Edit route", action: onEdit)
+                RouteActionButton(symbol: "trash", title: "Delete route", isDestructive: true, action: onDelete)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Edit route")
-            .accessibilityLabel("Edit route")
-            Button(role: .destructive, action: onDelete) {
-                Image(systemName: "trash")
-            }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
-            .help("Delete route")
-            .accessibilityLabel("Delete route")
         }
         .padding(.horizontal, 13)
         .padding(.vertical, 10)
         .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+    }
+}
+
+private struct RouteActionButton: View {
+    let symbol: String
+    let title: LocalizedStringKey
+    var isDestructive = false
+    let action: () -> Void
+
+    @ViewBuilder
+    var body: some View {
+        if isDestructive {
+            Button(role: .destructive, action: action, label: buttonLabel)
+                .routeActionAppearance(title: title)
+        } else {
+            Button(action: action, label: buttonLabel)
+                .routeActionAppearance(title: title)
+        }
+    }
+
+    private func buttonLabel() -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 13, weight: .medium))
+            .frame(width: 16, height: 16)
+    }
+}
+
+private extension View {
+    func routeActionAppearance(title: LocalizedStringKey) -> some View {
+        buttonStyle(.bordered)
+            .controlSize(.regular)
+            .frame(width: 34, height: 30)
+            .help(title)
+            .accessibilityLabel(title)
     }
 }
 
