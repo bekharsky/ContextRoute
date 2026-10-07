@@ -21,7 +21,7 @@ struct ContextRouteApp: App {
                     Button("Make default browser…") { appDelegate.showLinkSetup() }
                     Divider()
                 }
-                Button("Open ContextRoute") { appDelegate.showSettingsWindow() }
+                Button("Settings…") { appDelegate.showSettingsWindow() }
                 Button("About ContextRoute") { appDelegate.showAboutWindow() }
                 Divider()
                 Button("Quit ContextRoute") { NSApp.terminate(nil) }
@@ -36,7 +36,7 @@ struct ContextRouteApp: App {
                     .environment(\.locale, interfaceLocale)
             }
             CommandGroup(replacing: .appSettings) {
-                Button("Open ContextRoute") { appDelegate.showSettingsWindow() }
+                Button("Settings…") { appDelegate.showSettingsWindow() }
                     .keyboardShortcut(",", modifiers: .command)
                     .environment(\.locale, interfaceLocale)
             }

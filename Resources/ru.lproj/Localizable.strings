@@ -81,7 +81,7 @@
 "Off" = "Выкл.";
 "Turn handler off" = "Выключить обработчик";
 "Turn handler on" = "Включить обработчик";
-"Open ContextRoute" = "Открыть ContextRoute";
+"Settings…" = "Настройки…";
 "About ContextRoute" = "О ContextRoute";
 "Created by %@" = "Автор: %@";
 "Quit ContextRoute" = "Завершить ContextRoute";
