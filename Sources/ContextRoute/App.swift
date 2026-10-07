@@ -33,30 +33,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func showSettingsWindow() {
         if let settingsWindow {
-            NSApp.activate(ignoringOtherApps: true)
-            settingsWindow.makeKeyAndOrderFront(nil)
+            bringSettingsWindowForward(settingsWindow)
             return
         }
 
         let hostingController = NSHostingController(
-            rootView: SettingsView(model: RouterModel.shared)
-                .frame(width: 760, height: 540))
+            rootView: SettingsView(model: RouterModel.shared))
+        hostingController.sizingOptions = []
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false)
         window.contentViewController = hostingController
+        window.setContentSize(NSSize(width: 760, height: 540))
         window.title = "ContextRoute"
         window.titlebarAppearsTransparent = false
         window.toolbarStyle = .unified
         window.minSize = NSSize(width: 700, height: 450)
+        window.collectionBehavior.insert(.moveToActiveSpace)
         window.isReleasedWhenClosed = false
         window.center()
         settingsWindow = window
 
+        bringSettingsWindowForward(window)
+    }
+
+    private func bringSettingsWindowForward(_ window: NSWindow) {
+        if window.isMiniaturized { window.deminiaturize(nil) }
+        NSApp.unhide(nil)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
+
+        // A menu-bar action can run before menu tracking finishes and activation takes effect.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showSettingsWindow()
+        return false
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {

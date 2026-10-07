@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -63,11 +64,9 @@ struct SettingsView: View {
     @State private var browsers = BrowserCatalog.installedBrowsers()
     @State private var fallbackBrowserID = ""
     @State private var selectedSection: SettingsSection = .routes
-    @State private var columnVisibility: NavigationSplitViewVisibility = .all
     @State private var isEditingRoute = false
     @State private var editingRoute: SourceRoute?
     @State private var searchText = ""
-    @FocusState private var searchIsFocused: Bool
     @State private var sectionHistory: [SettingsSection] = [.routes]
     @State private var historyPosition = 0
 
@@ -135,44 +134,19 @@ struct SettingsView: View {
     private var canNavigateForward: Bool { historyPosition < sectionHistory.count - 1 }
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 220, ideal: 238, max: 255)
-        } detail: {
-            Group {
-                if !searchQuery.isEmpty && matchingSections.isEmpty {
-                    ContentUnavailableView(
-                        "No settings found",
-                        systemImage: "magnifyingglass",
-                        description: Text("Try another name or keyword."))
-                } else {
-                    switch selectedSection {
-                    case .routes: routesTab
-                    case .handlers: handlersTab
-                    case .fallback: fallbackTab
-                    case .appearance: appearanceTab
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(nsColor: .textBackgroundColor))
-        }
-        .navigationSplitViewStyle(.balanced)
-        .toolbar(removing: .sidebarToggle)
-        .overlay(alignment: .topLeading) {
-            SettingsWindowToolbarBridge(
-                title: selectedSection.resolvedTitle,
-                showsRefresh: selectedSection != .appearance,
-                visibility: $columnVisibility,
-                canNavigateBack: canNavigateBack,
-                canNavigateForward: canNavigateForward,
-                onBack: navigateBack,
-                onForward: navigateForward,
-                onRefresh: refreshBrowsers)
-                .frame(width: 1, height: 1)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        SettingsSplitContainer(
+            sidebar: AnyView(sidebar.environment(\.locale, interfaceLanguage.locale)),
+            detail: AnyView(detail.environment(\.locale, interfaceLanguage.locale)),
+            searchText: $searchText,
+            title: selectedSection.resolvedTitle,
+            showsRefresh: selectedSection != .appearance,
+            canNavigateBack: canNavigateBack,
+            canNavigateForward: canNavigateForward,
+            onBack: navigateBack,
+            onForward: navigateForward,
+            onRefresh: refreshBrowsers)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .ignoresSafeArea()
         .preferredColorScheme(appearanceChoice.colorScheme)
         .environment(\.locale, interfaceLanguage.locale)
         .onAppear(perform: syncFallbackSelection)
@@ -187,37 +161,28 @@ struct SettingsView: View {
         }
     }
 
-    private var sidebar: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 9) {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.secondary)
-                TextField("Search settings", text: $searchText)
-                    .textFieldStyle(.plain)
-                    .focused($searchIsFocused)
-                    .accessibilityLabel("Search settings")
-                    .submitLabel(.search)
-                if !searchQuery.isEmpty {
-                    Button {
-                        searchText = ""
-                        searchIsFocused = true
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Clear search")
-                    .accessibilityLabel("Clear search")
+    private var detail: some View {
+        Group {
+            if !searchQuery.isEmpty && matchingSections.isEmpty {
+                ContentUnavailableView(
+                    "No settings found",
+                    systemImage: "magnifyingglass",
+                    description: Text("Try another name or keyword."))
+            } else {
+                switch selectedSection {
+                case .routes: routesTab
+                case .handlers: handlersTab
+                case .fallback: fallbackTab
+                case .appearance: appearanceTab
                 }
             }
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            .glassEffect(.regular, in: Capsule())
-            .padding(.horizontal, 12)
-            .padding(.top, 14)
-            .padding(.bottom, 8)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(nsColor: .textBackgroundColor))
+    }
 
+    private var sidebar: some View {
+        VStack(spacing: 0) {
             List(selection: sidebarSelection) {
                 ForEach(matchingSections) { section in
                     Label(section.title, systemImage: section.symbol)
@@ -244,16 +209,6 @@ struct SettingsView: View {
             .padding(.horizontal, 16)
             .padding(.top, 12)
             .padding(.bottom, 14)
-        }
-        .background {
-            Color(nsColor: .underPageBackgroundColor)
-                .ignoresSafeArea()
-        }
-        .overlay(alignment: .trailing) {
-            Rectangle()
-                .fill(Color(nsColor: .separatorColor))
-                .frame(width: 1)
-                .ignoresSafeArea()
         }
     }
 
@@ -621,93 +576,113 @@ private extension View {
     }
 }
 
-private struct SettingsWindowToolbarBridge: NSViewRepresentable {
+private struct SettingsSplitContainer: NSViewControllerRepresentable {
+    let sidebar: AnyView
+    let detail: AnyView
+    @Binding var searchText: String
     let title: String
     let showsRefresh: Bool
-    @Binding var visibility: NavigationSplitViewVisibility
     let canNavigateBack: Bool
     let canNavigateForward: Bool
     let onBack: () -> Void
     let onForward: () -> Void
     let onRefresh: () -> Void
 
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsViewController: SettingsSplitController, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 760, height: proposal.height ?? 540)
     }
 
-    func makeNSView(context: Context) -> ToolbarAnchorView {
-        let view = ToolbarAnchorView()
-        view.windowDidChange = { [weak coordinator = context.coordinator] window in
+    func makeNSViewController(context: Context) -> SettingsSplitController {
+        let controller = SettingsSplitController(sidebar: sidebar, detail: detail)
+        context.coordinator.attach(to: controller)
+        controller.windowDidChange = { [weak coordinator = context.coordinator] window in
             coordinator?.install(in: window)
         }
-        return view
+        return controller
     }
 
-    func updateNSView(_ nsView: ToolbarAnchorView, context: Context) {
-        let coordinator = context.coordinator
-        coordinator.update(
+    func updateNSViewController(_ controller: SettingsSplitController, context: Context) {
+        context.coordinator.update(
+            searchText: $searchText,
             title: title,
             showsRefresh: showsRefresh,
-            visibility: $visibility,
             canNavigateBack: canNavigateBack,
             canNavigateForward: canNavigateForward,
             onBack: onBack,
             onForward: onForward,
             onRefresh: onRefresh)
-        nsView.windowDidChange = { [weak coordinator] window in
-            coordinator?.install(in: window)
-        }
-        coordinator.install(in: nsView.window)
+        controller.sidebarHost.rootView = sidebar
+        controller.detailHost.rootView = detail
+        context.coordinator.install(in: controller.view.window)
     }
 
-    final class Coordinator: NSObject, NSToolbarDelegate {
+    final class Coordinator: NSObject, NSToolbarDelegate, NSSearchFieldDelegate {
         private static let toolbarIdentifier = NSToolbar.Identifier("ContextRoute.SettingsToolbar")
+        private static let separatorIdentifier = NSToolbarItem.Identifier("ContextRoute.SidebarSeparator")
         private static let sidebarIdentifier = NSToolbarItem.Identifier("ContextRoute.SidebarToggle")
         private static let navigationIdentifier = NSToolbarItem.Identifier("ContextRoute.Navigation")
         private static let titleIdentifier = NSToolbarItem.Identifier("ContextRoute.SectionTitle")
         private static let refreshIdentifier = NSToolbarItem.Identifier("ContextRoute.Refresh")
 
+        private weak var controller: SettingsSplitController?
         private weak var window: NSWindow?
         private var toolbar: NSToolbar?
+        private var collapseObservation: NSKeyValueObservation?
+        private var searchText: Binding<String>?
         private var title = ""
         private var showsRefresh = true
-        private var visibility: Binding<NavigationSplitViewVisibility>?
         private var canNavigateBack = false
         private var canNavigateForward = false
         private var onBack: () -> Void = {}
         private var onForward: () -> Void = {}
         private var onRefresh: () -> Void = {}
         private var sidebarItem: NSToolbarItem?
-        private weak var sidebarButton: NSButton?
-        private weak var navigationControl: NSSegmentedControl?
+        private var navigationItem: NSToolbarItemGroup?
         private var titleItem: NSToolbarItem?
         private var titleField: NSTextField?
 
+        func attach(to controller: SettingsSplitController) {
+            self.controller = controller
+            controller.searchAccessory.searchField.delegate = self
+            collapseObservation = controller.sidebarItem.observe(\.isCollapsed, options: [.new]) { [weak self] _, _ in
+                self?.updateSidebarItem()
+            }
+        }
+
         func update(
+            searchText: Binding<String>,
             title: String,
             showsRefresh: Bool,
-            visibility: Binding<NavigationSplitViewVisibility>,
             canNavigateBack: Bool,
             canNavigateForward: Bool,
             onBack: @escaping () -> Void,
             onForward: @escaping () -> Void,
             onRefresh: @escaping () -> Void
         ) {
+            self.searchText = searchText
             self.title = title
             self.showsRefresh = showsRefresh
-            self.visibility = visibility
             self.canNavigateBack = canNavigateBack
             self.canNavigateForward = canNavigateForward
             self.onBack = onBack
             self.onForward = onForward
             self.onRefresh = onRefresh
 
+            if let field = controller?.searchAccessory.searchField {
+                if field.stringValue != searchText.wrappedValue {
+                    field.stringValue = searchText.wrappedValue
+                }
+                field.placeholderString = ContextRouteLocalization.string("Search settings")
+                field.setAccessibilityLabel(ContextRouteLocalization.string("Search settings"))
+            }
             updateToolbarItems()
             window?.title = title
         }
 
         func install(in window: NSWindow?) {
-            guard let window, visibility != nil else { return }
+            guard let window, let controller, searchText != nil else { return }
             self.window = window
             window.title = title
             window.titleVisibility = .hidden
@@ -723,30 +698,16 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             toolbar.autosavesConfiguration = false
             self.toolbar = toolbar
             window.toolbar = toolbar
+            controller.view.layoutSubtreeIfNeeded()
         }
 
         func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-            // Keep the tracking separator first so every control stays in the content toolbar.
-            [
-                .sidebarTrackingSeparator,
-                Self.sidebarIdentifier,
-                Self.navigationIdentifier,
-                Self.titleIdentifier,
-                .flexibleSpace
-            ]
-            + (showsRefresh ? [Self.refreshIdentifier] : [])
+            [Self.separatorIdentifier, Self.sidebarIdentifier, Self.navigationIdentifier, Self.titleIdentifier, .flexibleSpace]
+                + (showsRefresh ? [Self.refreshIdentifier] : [])
         }
 
         func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-            [
-                .sidebarTrackingSeparator,
-                Self.sidebarIdentifier,
-                Self.navigationIdentifier,
-                Self.titleIdentifier,
-                .space,
-                .flexibleSpace,
-                Self.refreshIdentifier
-            ]
+            [Self.separatorIdentifier, Self.sidebarIdentifier, Self.navigationIdentifier, Self.titleIdentifier, .flexibleSpace, Self.refreshIdentifier]
         }
 
         func toolbar(
@@ -755,45 +716,52 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             willBeInsertedIntoToolbar flag: Bool
         ) -> NSToolbarItem? {
             switch itemIdentifier {
+            case Self.separatorIdentifier:
+                guard let controller else { return nil }
+                return NSTrackingSeparatorToolbarItem(
+                    identifier: itemIdentifier,
+                    splitView: controller.splitView,
+                    dividerIndex: 0)
+
             case Self.sidebarIdentifier:
                 let item = makeItem(
                     identifier: itemIdentifier,
                     label: sidebarLabel,
-                    symbol: sidebarSymbol,
+                    symbol: "sidebar.left",
                     action: #selector(toggleSidebar(_:)))
+                item.isNavigational = true
                 sidebarItem = item
-                sidebarButton = item.view as? NSButton
                 return item
 
             case Self.navigationIdentifier:
-                let control = LargeNavigationSegmentedControl(frame: NSRect(x: 0, y: 0, width: 96, height: 40))
-                control.segmentCount = 2
-                control.segmentStyle = .automatic
-                control.trackingMode = .momentary
-                control.controlSize = .large
-                control.setImage(toolbarImage("chevron.backward", label: ContextRouteLocalization.string("Back")), forSegment: 0)
-                control.setImage(toolbarImage("chevron.forward", label: ContextRouteLocalization.string("Forward")), forSegment: 1)
-                control.setWidth(48, forSegment: 0)
-                control.setWidth(48, forSegment: 1)
-                control.setEnabled(canNavigateBack, forSegment: 0)
-                control.setEnabled(canNavigateForward, forSegment: 1)
-                control.setAccessibilityLabel(ContextRouteLocalization.string("Back and forward"))
-                control.target = self
-                control.action = #selector(navigate(_:))
-
-                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                let labels = [ContextRouteLocalization.string("Back"), ContextRouteLocalization.string("Forward")]
+                let item = NSToolbarItemGroup(
+                    itemIdentifier: itemIdentifier,
+                    images: [toolbarImage("chevron.backward", label: labels[0]), toolbarImage("chevron.forward", label: labels[1])],
+                    selectionMode: .momentary,
+                    labels: labels,
+                    target: self,
+                    action: #selector(navigate(_:)))
                 item.label = ContextRouteLocalization.string("Back and forward")
                 item.paletteLabel = item.label
-                item.view = control
-                navigationControl = control
+                item.isNavigational = true
+                item.isBordered = true
+                item.autovalidates = false
+                item.controlRepresentation = .expanded
+                item.subitems[0].autovalidates = false
+                item.subitems[1].autovalidates = false
+                item.subitems[0].isEnabled = canNavigateBack
+                item.subitems[1].isEnabled = canNavigateForward
+                navigationItem = item
                 return item
 
             case Self.titleIdentifier:
                 let item = NSToolbarItem(itemIdentifier: itemIdentifier)
                 item.label = title
                 item.paletteLabel = title
+                item.isBordered = false
                 let field = NSTextField(labelWithString: title)
-                field.font = .systemFont(ofSize: 15, weight: .semibold)
+                field.font = .systemFont(ofSize: 14, weight: .semibold)
                 field.lineBreakMode = .byTruncatingTail
                 field.maximumNumberOfLines = 1
                 field.setContentHuggingPriority(.required, for: .horizontal)
@@ -816,12 +784,8 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             }
         }
 
-        private var sidebarSymbol: String {
-            visibility?.wrappedValue == .detailOnly ? "sidebar.right" : "sidebar.left"
-        }
-
         private var sidebarLabel: String {
-            ContextRouteLocalization.string(visibility?.wrappedValue == .detailOnly ? "Show sidebar" : "Hide sidebar")
+            ContextRouteLocalization.string(controller?.sidebarItem.isCollapsed == true ? "Show sidebar" : "Hide sidebar")
         }
 
         private func makeItem(
@@ -834,36 +798,29 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             item.label = label
             item.paletteLabel = label
             item.toolTip = label
-            let button = LargeToolbarButton(image: toolbarImage(symbol, label: label), target: self, action: action)
-            button.bezelStyle = .toolbar
-            button.controlSize = .large
-            button.isBordered = true
-            button.imagePosition = .imageOnly
-            button.imageScaling = .scaleProportionallyDown
-            button.setButtonType(.momentaryPushIn)
-            button.setAccessibilityLabel(label)
-            button.toolTip = label
-            button.frame = NSRect(x: 0, y: 0, width: 48, height: 40)
-            item.view = button
+            item.image = toolbarImage(symbol, label: label)
+            item.isBordered = true
+            item.autovalidates = false
+            item.target = self
+            item.action = action
             return item
         }
 
         private func toolbarImage(_ symbol: String, label: String) -> NSImage {
-            NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
-                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 16, weight: .regular))
-                ?? NSImage()
+            NSImage(systemSymbolName: symbol, accessibilityDescription: label) ?? NSImage()
+        }
+
+        private func updateSidebarItem() {
+            sidebarItem?.label = sidebarLabel
+            sidebarItem?.paletteLabel = sidebarLabel
+            sidebarItem?.toolTip = sidebarLabel
         }
 
         private func updateToolbarItems() {
-            if let sidebarItem, let sidebarButton {
-                sidebarButton.image = toolbarImage(sidebarSymbol, label: sidebarLabel)
-                sidebarItem.label = sidebarLabel
-                sidebarItem.paletteLabel = sidebarLabel
-                sidebarItem.toolTip = sidebarLabel
-            }
-            if let navigationControl {
-                navigationControl.setEnabled(canNavigateBack, forSegment: 0)
-                navigationControl.setEnabled(canNavigateForward, forSegment: 1)
+            updateSidebarItem()
+            if let navigationItem {
+                navigationItem.subitems[0].isEnabled = canNavigateBack
+                navigationItem.subitems[1].isEnabled = canNavigateForward
             }
             if let titleField {
                 titleField.stringValue = title
@@ -880,32 +837,28 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
                     toolbar.removeItem(at: refreshIndex)
                 }
             }
-            toolbar?.validateVisibleItems()
+        }
+
+        func controlTextDidChange(_ notification: Notification) {
+            guard let field = notification.object as? NSSearchField else { return }
+            searchText?.wrappedValue = field.stringValue
         }
 
         @objc private func toggleSidebar(_ sender: Any?) {
-            guard let visibility else { return }
-            withAnimation(.easeInOut(duration: 0.4)) {
-                visibility.wrappedValue = visibility.wrappedValue == .detailOnly ? .all : .detailOnly
+            guard let controller else { return }
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.32
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                controller.sidebarItem.animator().isCollapsed = !controller.sidebarItem.isCollapsed
             }
         }
 
-        @objc private func navigate(_ sender: NSSegmentedControl) {
-            switch sender.selectedSegment {
-            case 0: goBack(sender)
-            case 1: goForward(sender)
+        @objc private func navigate(_ sender: NSToolbarItemGroup) {
+            switch sender.selectedIndex {
+            case 0 where canNavigateBack: onBack()
+            case 1 where canNavigateForward: onForward()
             default: break
             }
-        }
-
-        @objc private func goBack(_ sender: Any?) {
-            guard canNavigateBack else { return }
-            onBack()
-        }
-
-        @objc private func goForward(_ sender: Any?) {
-            guard canNavigateForward else { return }
-            onForward()
         }
 
         @objc private func refresh(_ sender: Any?) {
@@ -915,15 +868,68 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
     }
 }
 
-private final class LargeToolbarButton: NSButton {
-    override var intrinsicContentSize: NSSize { NSSize(width: 48, height: 40) }
+private final class SettingsSplitController: NSSplitViewController {
+    let sidebarHost: NSHostingController<AnyView>
+    let detailHost: NSHostingController<AnyView>
+    let sidebarItem: NSSplitViewItem
+    let searchAccessory = SettingsSidebarSearchController()
+
+    var windowDidChange: ((NSWindow?) -> Void)? {
+        get { (splitView as? SettingsNativeSplitView)?.windowDidChange }
+        set { (splitView as? SettingsNativeSplitView)?.windowDidChange = newValue }
+    }
+
+    init(sidebar: AnyView, detail: AnyView) {
+        sidebarHost = NSHostingController(rootView: sidebar)
+        detailHost = NSHostingController(rootView: detail)
+        sidebarItem = NSSplitViewItem(sidebarWithViewController: sidebarHost)
+        super.init(nibName: nil, bundle: nil)
+        splitView = SettingsNativeSplitView()
+        splitView.isVertical = true
+        splitView.dividerStyle = .thin
+        sidebarHost.sizingOptions = []
+        detailHost.sizingOptions = []
+        sidebarItem.minimumThickness = 238
+        sidebarItem.maximumThickness = 255
+        sidebarItem.preferredThicknessFraction = 238.0 / 760.0
+        sidebarItem.holdingPriority = .defaultHigh
+        sidebarItem.canCollapseFromWindowResize = false
+        sidebarItem.collapseBehavior = .preferResizingSiblingsWithFixedSplitView
+        sidebarItem.allowsFullHeightLayout = true
+        sidebarItem.titlebarSeparatorStyle = .none
+        sidebarItem.addTopAlignedAccessoryViewController(searchAccessory)
+        addSplitViewItem(sidebarItem)
+        let detailItem = NSSplitViewItem(viewController: detailHost)
+        detailItem.minimumThickness = 420
+        addSplitViewItem(detailItem)
+    }
+
+    required init?(coder: NSCoder) { fatalError("Use init(sidebar:detail:)") }
 }
 
-private final class LargeNavigationSegmentedControl: NSSegmentedControl {
-    override var intrinsicContentSize: NSSize { NSSize(width: 96, height: 40) }
+private final class SettingsSidebarSearchController: NSSplitViewItemAccessoryViewController {
+    let searchField = NSSearchField()
+
+    override func loadView() {
+        let container = NSView()
+        searchField.controlSize = .regular
+        searchField.sendsSearchStringImmediately = true
+        searchField.sendsWholeSearchString = false
+        searchField.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(searchField)
+        NSLayoutConstraint.activate([
+            searchField.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            searchField.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            searchField.topAnchor.constraint(equalTo: container.topAnchor),
+            searchField.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+        ])
+        view = container
+        automaticallyAppliesContentInsets = true
+        preferredScrollEdgeEffectStyle = .soft
+    }
 }
 
-private final class ToolbarAnchorView: NSView {
+private final class SettingsNativeSplitView: NSSplitView {
     var windowDidChange: ((NSWindow?) -> Void)?
 
     override func viewDidMoveToWindow() {
