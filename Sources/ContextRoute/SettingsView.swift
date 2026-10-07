@@ -793,7 +793,7 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
                 item.label = title
                 item.paletteLabel = title
                 let field = NSTextField(labelWithString: title)
-                field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular), weight: .semibold)
+                field.font = .systemFont(ofSize: 16, weight: .semibold)
                 field.lineBreakMode = .byTruncatingTail
                 field.maximumNumberOfLines = 1
                 field.setContentHuggingPriority(.required, for: .horizontal)
@@ -834,7 +834,8 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             item.label = label
             item.paletteLabel = label
             item.toolTip = label
-            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)?
+                .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .medium))
             item.target = self
             item.action = action
             return item
@@ -842,7 +843,8 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
 
         private func updateToolbarItems() {
             if let sidebarItem {
-                sidebarItem.image = NSImage(systemSymbolName: sidebarSymbol, accessibilityDescription: sidebarLabel)
+                sidebarItem.image = NSImage(systemSymbolName: sidebarSymbol, accessibilityDescription: sidebarLabel)?
+                    .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 20, weight: .medium))
                 sidebarItem.label = sidebarLabel
                 sidebarItem.paletteLabel = sidebarLabel
                 sidebarItem.toolTip = sidebarLabel

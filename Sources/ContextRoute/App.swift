@@ -43,11 +43,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 .frame(width: 760, height: 540))
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
-            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
             backing: .buffered,
             defer: false)
         window.contentViewController = hostingController
         window.title = "ContextRoute"
+        window.titlebarAppearsTransparent = true
         window.toolbarStyle = .unifiedCompact
         window.minSize = NSSize(width: 700, height: 450)
         window.isReleasedWhenClosed = false
