@@ -15,6 +15,11 @@
 "Try another name or keyword." = "Try another name or keyword.";
 "Link handling is on" = "Link handling is on";
 "Link handling is off" = "Link handling is off";
+"Enable link routing" = "Enable link routing";
+"Make ContextRoute your default browser so links follow your rules. Other links will open in your fallback browser." = "Make ContextRoute your default browser so links follow your rules. Other links will open in your fallback browser.";
+"Make default browser" = "Make default browser";
+"Make default browser…" = "Make default browser…";
+"Setting default browser…" = "Setting default browser…";
 "Choose which browser and profile should open links from each app." = "Choose which browser and profile should open links from each app.";
 "Source app rules" = "Source app rules";
 "Links without a matching rule use the fallback browser." = "Links without a matching rule use the fallback browser.";

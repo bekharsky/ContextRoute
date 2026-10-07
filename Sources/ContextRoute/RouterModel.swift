@@ -10,6 +10,9 @@ final class RouterModel: ObservableObject {
     @Published private(set) var urlAppOverrides: [URLAppOverride]
     @Published private(set) var fallbackBrowserBundleIdentifier: String?
     @Published private(set) var fallbackBrowserName: String?
+    @Published private(set) var isContextRouteDefaultHandler = false
+    @Published private(set) var isSettingDefaultHandler = false
+    @Published private(set) var defaultHandlerError: LocalizedMessage?
     @Published private(set) var localizedStatus = LocalizedMessage(key: "No links have been routed yet.")
     @Published var lastRoute = ""
 
@@ -40,6 +43,7 @@ final class RouterModel: ObservableObject {
         }
 
         captureCurrentDefaultBrowserIfPossible()
+        refreshDefaultHandlerStatus()
     }
 
     private static func mergeBuiltInOverrides(_ saved: [URLAppOverride]) -> [URLAppOverride] {
@@ -56,11 +60,16 @@ final class RouterModel: ObservableObject {
         return merged
     }
 
-    var isContextRouteDefaultHandler: Bool {
-        let sample = URL(string: "https://example.com")!
-        guard let appURL = NSWorkspace.shared.urlForApplication(toOpen: sample),
-              let bundleID = Bundle(url: appURL)?.bundleIdentifier else { return false }
-        return bundleID == Bundle.main.bundleIdentifier
+    func refreshDefaultHandlerStatus() {
+        let isDefault = ["http", "https"].allSatisfy { scheme in
+            guard let sample = URL(string: "\(scheme)://example.com"),
+                  let appURL = NSWorkspace.shared.urlForApplication(toOpen: sample),
+                  let bundleID = Bundle(url: appURL)?.bundleIdentifier else { return false }
+            return bundleID == Bundle.main.bundleIdentifier
+        }
+        if isContextRouteDefaultHandler != isDefault {
+            isContextRouteDefaultHandler = isDefault
+        }
     }
 
     func add(_ route: SourceRoute) {
@@ -83,6 +92,7 @@ final class RouterModel: ObservableObject {
     }
 
     func setFallbackBrowser(_ browser: BrowserInfo?) {
+        defaultHandlerError = nil
         fallbackBrowserBundleIdentifier = browser?.bundleIdentifier
         fallbackBrowserName = browser?.name
         persist()
@@ -113,11 +123,15 @@ final class RouterModel: ObservableObject {
     }
 
     func registerAsDefaultHandler() {
-        _ = captureCurrentDefaultBrowserIfPossible()
+        guard !isSettingDefaultHandler else { return }
+        if fallbackBrowserBundleIdentifier == nil { _ = captureCurrentDefaultBrowserIfPossible() }
+        defaultHandlerError = nil
         guard fallbackBrowserBundleIdentifier != nil else {
+            defaultHandlerError = LocalizedMessage(key: "Choose a fallback browser first.")
             setStatus("Choose a fallback browser first.")
             return
         }
+        isSettingDefaultHandler = true
         let appURL = Bundle.main.bundleURL
 
         NSWorkspace.shared.setDefaultApplication(
@@ -126,6 +140,10 @@ final class RouterModel: ObservableObject {
                 DispatchQueue.main.async {
                     guard let self else { return }
                     if let error {
+                        self.isSettingDefaultHandler = false
+                        self.defaultHandlerError = LocalizedMessage(
+                            key: "macOS couldn't set the link handler: %@", arguments: [error.localizedDescription])
+                        self.refreshDefaultHandlerStatus()
                         self.setStatus("macOS couldn't set the link handler: %@", arguments: [error.localizedDescription])
                         return
                     }
@@ -133,7 +151,12 @@ final class RouterModel: ObservableObject {
                         at: appURL,
                         toOpenURLsWithScheme: "http") { secondError in
                             DispatchQueue.main.async {
+                                self.isSettingDefaultHandler = false
+                                self.refreshDefaultHandlerStatus()
                                 if let secondError {
+                                    self.defaultHandlerError = LocalizedMessage(
+                                        key: "HTTPS is assigned; HTTP couldn't be assigned: %@",
+                                        arguments: [secondError.localizedDescription])
                                     self.setStatus("HTTPS is assigned; HTTP couldn't be assigned: %@", arguments: [secondError.localizedDescription])
                                 } else {
                                     self.setStatus("ContextRoute is now the default handler.")

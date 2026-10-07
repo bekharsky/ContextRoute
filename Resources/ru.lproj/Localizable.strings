@@ -15,6 +15,11 @@
 "Try another name or keyword." = "Попробуй другое название или слово.";
 "Link handling is on" = "Перехват ссылок включён";
 "Link handling is off" = "Перехват ссылок выключен";
+"Enable link routing" = "Включить маршрутизацию ссылок";
+"Make ContextRoute your default browser so links follow your rules. Other links will open in your fallback browser." = "Сделай ContextRoute браузером по умолчанию, чтобы ссылки открывались по твоим правилам. Остальные ссылки откроются в резервном браузере.";
+"Make default browser" = "Сделать браузером по умолчанию";
+"Make default browser…" = "Сделать браузером по умолчанию…";
+"Setting default browser…" = "Назначение браузером по умолчанию…";
 "Choose which browser and profile should open links from each app." = "Выбери браузер и профиль для ссылок из каждого приложения.";
 "Source app rules" = "Правила для приложений";
 "Links without a matching rule use the fallback browser." = "Если правило не подошло, используется резервный браузер.";

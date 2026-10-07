@@ -14,6 +14,10 @@ struct ContextRouteApp: App {
     var body: some Scene {
         MenuBarExtra("ContextRoute", systemImage: "arrow.triangle.branch") {
             Group {
+                if !model.isContextRouteDefaultHandler {
+                    Button("Make default browser…") { appDelegate.showLinkSetup() }
+                    Divider()
+                }
                 Button("Settings…") { appDelegate.showSettingsWindow() }
                 Divider()
                 Text(model.statusMessage)
@@ -22,6 +26,7 @@ struct ContextRouteApp: App {
                 Button("Quit ContextRoute") { NSApp.terminate(nil) }
             }
             .environment(\.locale, interfaceLocale)
+            .onAppear { model.refreshDefaultHandlerStatus() }
         }
         .menuBarExtraStyle(.menu)
     }
@@ -29,10 +34,12 @@ struct ContextRouteApp: App {
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    static let showLinkSetupNotification = Notification.Name("ContextRoute.ShowLinkSetup")
     private var settingsWindow: NSWindow?
     private let focusVisibility = SettingsFocusVisibility()
 
     func showSettingsWindow() {
+        RouterModel.shared.refreshDefaultHandlerStatus()
         focusVisibility.prepareForPresentation()
         if let settingsWindow {
             bringSettingsWindowForward(settingsWindow)
@@ -59,6 +66,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         settingsWindow = window
 
         bringSettingsWindowForward(window)
+    }
+
+    func showLinkSetup() {
+        showSettingsWindow()
+        DispatchQueue.main.async {
+            NotificationCenter.default.post(name: Self.showLinkSetupNotification, object: nil)
+        }
     }
 
     private func bringSettingsWindowForward(_ window: NSWindow) {
@@ -90,7 +104,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        _ = RouterModel.shared.captureCurrentDefaultBrowserIfPossible()
+        let model = RouterModel.shared
+        _ = model.captureCurrentDefaultBrowserIfPossible()
+        model.refreshDefaultHandlerStatus()
+        let setupKey = "app.contextroute.hasPresentedInitialSetup"
+        if !UserDefaults.standard.bool(forKey: setupKey) {
+            UserDefaults.standard.set(true, forKey: setupKey)
+            if !model.isContextRouteDefaultHandler { showLinkSetup() }
+        }
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        RouterModel.shared.refreshDefaultHandlerStatus()
     }
 
     @objc func handleGetURL(event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {

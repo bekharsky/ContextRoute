@@ -166,6 +166,10 @@ struct SettingsView: View {
         .onChange(of: searchText) { _, _ in
             selectFirstMatchingSectionIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showLinkSetupNotification)) { _ in
+            searchText = ""
+            selectSection(.fallback)
+        }
         .onChange(of: isEditingRoute) { _, isOpen in
             if !isOpen { editingRoute = nil }
         }
@@ -330,25 +334,6 @@ struct SettingsView: View {
                             model.setFallbackBrowser(browsers.first { $0.bundleIdentifier == newValue })
                         }
                     }
-
-                    Divider()
-
-                    HStack(spacing: 9) {
-                        Image(systemName: model.isContextRouteDefaultHandler
-                            ? "checkmark.circle.fill"
-                            : "info.circle")
-                            .foregroundStyle(model.isContextRouteDefaultHandler ? .green : .secondary)
-                        Text(model.isContextRouteDefaultHandler
-                            ? "ContextRoute handles http and https links."
-                            : "Set ContextRoute as your http and https handler to enable routing.")
-                            .font(.callout)
-                        Spacer(minLength: 8)
-                        Button("Set as link handler") {
-                            model.registerAsDefaultHandler()
-                        }
-                        .primaryActionStyle()
-                        .disabled(model.fallbackBrowserBundleIdentifier == nil)
-                    }
                 }
             }
 
@@ -422,13 +407,62 @@ struct SettingsView: View {
 
     private func pageContent<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14, content: content)
+            VStack(alignment: .leading, spacing: 14) {
+                if !model.isContextRouteDefaultHandler { defaultBrowserSetup }
+                content()
+            }
                 .frame(maxWidth: 810, alignment: .leading)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
                 .padding(.horizontal, 21)
                 .padding(.vertical, 18)
         }
         .scrollIndicators(.automatic)
+    }
+
+    private var defaultBrowserSetup: some View {
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top, spacing: 10) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.title2)
+                        .foregroundStyle(.tint)
+                        .frame(width: 26)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Enable link routing")
+                            .font(.headline)
+                        Text("Make ContextRoute your default browser so links follow your rules. Other links will open in your fallback browser.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                if let error = model.defaultHandlerError {
+                    Text(error.text)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                HStack {
+                    if model.fallbackBrowserBundleIdentifier == nil {
+                        Text("Choose a fallback browser first.")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 8)
+                    Button(model.isSettingDefaultHandler
+                        ? LocalizedStringKey("Setting default browser…")
+                        : LocalizedStringKey("Make default browser")) {
+                        if model.fallbackBrowserBundleIdentifier == nil {
+                            selectSection(.fallback)
+                        } else {
+                            model.registerAsDefaultHandler()
+                        }
+                    }
+                    .primaryActionStyle()
+                    .disabled(model.isSettingDefaultHandler)
+                }
+            }
+        }
     }
 
     private func addRoute() {
@@ -441,6 +475,7 @@ struct SettingsView: View {
     }
 
     private func syncFallbackSelection() {
+        model.refreshDefaultHandlerStatus()
         fallbackBrowserID = model.fallbackBrowserBundleIdentifier ?? ""
     }
 
