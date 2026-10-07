@@ -49,8 +49,8 @@ struct RouteEditorView: View {
             ? selectedBrowser.flatMap { BrowserCatalog.defaultUserDataDirectory(for: $0) } ?? ""
             : BrowserCatalog.expandHome(userDataDirectory)
     }
-    private var browserOptions: [RouteEditorPopup.Option] {
-        var options = browsers.map { RouteEditorPopup.Option(id: $0.bundleIdentifier, title: $0.name) }
+    private var browserOptions: [SettingsPopup.Option] {
+        var options = browsers.map { SettingsPopup.Option(id: $0.bundleIdentifier, title: $0.name) }
         if selectedBrowser == nil, !browserBundleIdentifier.isEmpty {
             options.insert(.init(id: browserBundleIdentifier,
                 title: ContextRouteLocalization.format("%@ (not installed)", arguments: [route?.browserName ?? browserBundleIdentifier])), at: 0)
@@ -60,14 +60,14 @@ struct RouteEditorView: View {
         }
         return options
     }
-    private var profileOptions: [RouteEditorPopup.Option] {
-        var options = [RouteEditorPopup.Option(id: "", title: ContextRouteLocalization.string("Use browser default"))]
+    private var profileOptions: [SettingsPopup.Option] {
+        var options = [SettingsPopup.Option(id: "", title: ContextRouteLocalization.string("Use browser default"))]
         if !profileIdentifier.isEmpty, !profileSelectionIsValid {
             let name = route?.profileIdentifier == profileIdentifier ? (route?.profileName ?? profileIdentifier) : profileIdentifier
             options.append(.init(id: profileIdentifier,
                 title: isScanning || profileScan == nil ? name : ContextRouteLocalization.format("%@ (unavailable)", arguments: [name])))
         }
-        options += profiles.map { RouteEditorPopup.Option(id: $0.id, title: $0.name) }
+        options += profiles.map { SettingsPopup.Option(id: $0.id, title: $0.name) }
         return options
     }
 
@@ -146,7 +146,7 @@ struct RouteEditorView: View {
                 formRow("Browser") {
                     HStack(spacing: RouteEditorLayout.controlSpacing) {
                         AppIconView(appURL: selectedBrowser?.appURL, symbol: "globe", size: RouteEditorLayout.iconSize)
-                        RouteEditorPopup(options: browserOptions, selection: $browserBundleIdentifier,
+                        SettingsPopup(options: browserOptions, selection: $browserBundleIdentifier,
                             label: ContextRouteLocalization.string("Browser"), isEnabled: !browsers.isEmpty)
                             .frame(minWidth: 0, maxWidth: .infinity)
                         activitySpace
@@ -177,7 +177,7 @@ struct RouteEditorView: View {
     }
 
     private var profilePicker: some View {
-        RouteEditorPopup(options: profileOptions, selection: $profileIdentifier,
+        SettingsPopup(options: profileOptions, selection: $profileIdentifier,
             label: ContextRouteLocalization.string("Profile"), isEnabled: !isScanning)
             .frame(minWidth: 0, maxWidth: .infinity)
     }

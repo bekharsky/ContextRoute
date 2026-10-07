@@ -21,65 +21,75 @@ struct SettingsPreferencesView: View {
         })
     }
 
+    private var fallbackOptions: [SettingsPopup.Option] {
+        var options = [SettingsPopup.Option(id: "", title: ContextRouteLocalization.string("Choose browser"), isEnabled: false)]
+        if let id = model.fallbackBrowserBundleIdentifier, !browsers.contains(where: { $0.bundleIdentifier == id }) {
+            options.append(.init(id: id, title: ContextRouteLocalization.format("%@ (not installed)", arguments: [model.fallbackBrowserName ?? id])))
+        }
+        options += browsers.map { .init(id: $0.bundleIdentifier, title: $0.name) }
+        return options
+    }
+
+    private var appearanceOptions: [SettingsPopup.Option] {
+        [
+            .init(id: AppearanceChoice.system.rawValue, title: ContextRouteLocalization.string("System")),
+            .init(id: AppearanceChoice.light.rawValue, title: ContextRouteLocalization.string("Light")),
+            .init(id: AppearanceChoice.dark.rawValue, title: ContextRouteLocalization.string("Dark"))
+        ]
+    }
+
+    private var languageOptions: [SettingsPopup.Option] {
+        [
+            .init(id: InterfaceLanguage.english.rawValue, title: ContextRouteLocalization.string("English")),
+            .init(id: InterfaceLanguage.russian.rawValue, title: "Русский"),
+            .init(id: InterfaceLanguage.system.rawValue, title: ContextRouteLocalization.string("System language"))
+        ]
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: PreferencesLayout.sectionSpacing) {
             SettingsCard {
-                HStack(spacing: 10) {
-                    Text("Fallback browser")
-                    Spacer(minLength: 12)
-                    AppIconView(appURL: browsers.first { $0.bundleIdentifier == fallbackID.wrappedValue }?.appURL, symbol: "globe", size: 24)
-                    Picker("Fallback browser", selection: fallbackID) {
-                        Text("Choose browser").tag("").disabled(true)
-                        if let id = model.fallbackBrowserBundleIdentifier, !browsers.contains(where: { $0.bundleIdentifier == id }) {
-                            Text(ContextRouteLocalization.format("%@ (not installed)", arguments: [model.fallbackBrowserName ?? id])).tag(id)
-                        }
-                        ForEach(browsers) { browser in Text(browser.name).tag(browser.bundleIdentifier) }
+                VStack(alignment: .leading, spacing: PreferencesLayout.rowSpacing) {
+                    settingsRow("Fallback browser") {
+                        AppIconView(appURL: browsers.first { $0.bundleIdentifier == fallbackID.wrappedValue }?.appURL, symbol: "globe", size: 24)
+                        SettingsPopup(options: fallbackOptions, selection: fallbackID,
+                            label: ContextRouteLocalization.string("Fallback browser"), isEnabled: model.canEditSettings)
+                            .frame(width: PreferencesLayout.controlWidth)
                     }
-                    .labelsHidden().frame(width: 190)
+                    settingsDescription("Used for links without a matching app route. Open in apps and app routes take priority.")
                 }
-                .disabled(!model.canEditSettings)
             }
             .searchTarget("fallback", highlighted: highlightedAnchor)
-            SectionIntro("Used for links without a matching app route. Open in apps and app routes take priority.")
 
             SettingsCard {
-                VStack(alignment: .leading, spacing: 13) {
-                    HStack(spacing: 12) {
-                        Text("Appearance")
-                        Spacer(minLength: 12)
-                        Picker("Appearance", selection: $appearance) {
-                            Text("System").tag(AppearanceChoice.system.rawValue)
-                            Text("Light").tag(AppearanceChoice.light.rawValue)
-                            Text("Dark").tag(AppearanceChoice.dark.rawValue)
-                        }.labelsHidden().pickerStyle(.segmented).frame(width: 230)
+                VStack(alignment: .leading, spacing: PreferencesLayout.rowSpacing) {
+                    settingsRow("Appearance") {
+                        SettingsSegmentedControl(options: appearanceOptions, selection: $appearance,
+                            label: ContextRouteLocalization.string("Appearance"))
+                            .frame(width: PreferencesLayout.controlWidth)
                     }
                     .searchTarget("appearance", highlighted: highlightedAnchor)
-                    Text("System follows the appearance set in macOS.").font(.caption).foregroundStyle(.secondary)
-                    Divider()
-                    HStack(spacing: 12) {
-                        Text("Language")
-                        Spacer(minLength: 12)
-                        Picker("Language", selection: $language) {
-                            Text("English").tag(InterfaceLanguage.english.rawValue)
-                            Text("Русский").tag(InterfaceLanguage.russian.rawValue)
-                            Text("System language").tag(InterfaceLanguage.system.rawValue)
-                        }.labelsHidden().pickerStyle(.menu).frame(width: 190, alignment: .trailing)
+                    settingsDescription("System follows the appearance set in macOS.")
+                    Divider().padding(.vertical, 4)
+                    settingsRow("Language") {
+                        SettingsPopup(options: languageOptions, selection: $language,
+                            label: ContextRouteLocalization.string("Language"))
+                            .frame(width: PreferencesLayout.controlWidth)
                     }
                     .searchTarget("language", highlighted: highlightedAnchor)
                 }
             }
 
             SettingsCard {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack(spacing: 12) {
-                        Text("Launch at login")
-                        Spacer(minLength: 12)
+                VStack(alignment: .leading, spacing: PreferencesLayout.rowSpacing) {
+                    settingsRow("Launch at login") {
                         Toggle("Launch at login", isOn: Binding(get: { loginItem.isEnabled }, set: loginItem.setEnabled))
                             .labelsHidden()
                             .toggleStyle(.switch)
                             .controlSize(.regular)
+                            .frame(width: PreferencesLayout.controlWidth, alignment: .trailing)
                     }
-                    Text("Start in the menu bar when you sign in.").font(.caption).foregroundStyle(.secondary)
+                    settingsDescription("Start in the menu bar when you sign in.")
                     if loginItem.requiresApproval {
                         Text("Allow ContextRoute in Login Items to finish enabling this setting.")
                             .font(.callout).foregroundStyle(.secondary)
@@ -93,16 +103,22 @@ struct SettingsPreferencesView: View {
             .searchTarget("login", highlighted: highlightedAnchor)
 
             SettingsCard {
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack {
-                        Text("Import and export")
-                        Spacer()
-                        Button("Import…", action: chooseImport).buttonStyle(.bordered)
-                        Button("Export…", action: chooseExport).buttonStyle(.bordered)
+                VStack(alignment: .leading, spacing: PreferencesLayout.rowSpacing) {
+                    settingsRow("Import and export") {
+                        HStack(spacing: PreferencesLayout.rowSpacing) {
+                            Button(action: chooseImport) {
+                                Text("Import…").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            Button(action: chooseExport) {
+                                Text("Export…").frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
                             .disabled(model.recovery == .unreadable)
+                        }
+                        .frame(width: PreferencesLayout.controlWidth)
                     }
-                    Text("Transfer app routes, app handlers and the fallback browser between Macs.")
-                        .font(.caption).foregroundStyle(.secondary)
+                    settingsDescription("Transfer app routes, app handlers and the fallback browser between Macs.")
                     if let transferError {
                         Label(transferError, systemImage: "exclamationmark.triangle.fill").font(.callout)
                     } else if transferSucceeded {
@@ -127,6 +143,22 @@ struct SettingsPreferencesView: View {
                 Text("This replaces the unreadable settings. A copy of the original file will be kept.")
             }
         }
+    }
+
+    private func settingsRow<Content: View>(_ title: LocalizedStringKey, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: PreferencesLayout.rowSpacing) {
+            Text(title).fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 12)
+            content()
+        }
+        .frame(minHeight: PreferencesLayout.rowHeight)
+    }
+
+    private func settingsDescription(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private func chooseImport() {
@@ -169,6 +201,13 @@ struct SettingsPreferencesView: View {
             }
         }
     }
+}
+
+private enum PreferencesLayout {
+    static let sectionSpacing: CGFloat = 14
+    static let rowSpacing: CGFloat = 8
+    static let rowHeight: CGFloat = 28
+    static let controlWidth: CGFloat = 220
 }
 
 extension View {

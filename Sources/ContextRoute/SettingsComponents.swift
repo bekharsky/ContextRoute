@@ -33,6 +33,127 @@ struct SettingsCard<Content: View>: View {
     }
 }
 
+/// A system pop-up button that fills its proposed width instead of hugging its title.
+struct SettingsPopup: NSViewRepresentable {
+    struct Option: Equatable {
+        let id: String
+        let title: String
+        var isEnabled = true
+    }
+
+    let options: [Option]
+    @Binding var selection: String
+    let label: String
+    var isEnabled = true
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    func makeNSView(context: Context) -> NSPopUpButton {
+        let button = NSPopUpButton(frame: .zero, pullsDown: false)
+        button.controlSize = .regular
+        button.font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+        button.bezelStyle = .rounded
+        button.cell?.lineBreakMode = .byTruncatingMiddle
+        button.cell?.usesSingleLineMode = true
+        button.menu = NSMenu()
+        button.menu?.autoenablesItems = false
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.selectOption(_:))
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return button
+    }
+
+    func updateNSView(_ button: NSPopUpButton, context: Context) {
+        context.coordinator.selection = $selection
+        if context.coordinator.options != options {
+            context.coordinator.options = options
+            button.removeAllItems()
+            for option in options {
+                let item = NSMenuItem(title: option.title, action: nil, keyEquivalent: "")
+                item.representedObject = option.id
+                item.isEnabled = option.isEnabled
+                button.menu?.addItem(item)
+            }
+        }
+        button.selectItem(at: options.firstIndex { $0.id == selection } ?? -1)
+        button.isEnabled = isEnabled && !options.isEmpty
+        button.setAccessibilityLabel(label)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSPopUpButton, context: Context) -> CGSize? {
+        let intrinsicSize = nsView.intrinsicContentSize
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? intrinsicSize.width
+        return CGSize(width: max(0, width), height: intrinsicSize.height)
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<String>
+        var options: [Option] = []
+
+        init(selection: Binding<String>) { self.selection = selection }
+
+        @objc func selectOption(_ sender: NSPopUpButton) {
+            guard let item = sender.selectedItem, item.isEnabled,
+                  let id = item.representedObject as? String else { return }
+            selection.wrappedValue = id
+        }
+    }
+}
+
+struct SettingsSegmentedControl: NSViewRepresentable {
+    let options: [SettingsPopup.Option]
+    @Binding var selection: String
+    let label: String
+
+    func makeCoordinator() -> Coordinator { Coordinator(selection: $selection) }
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.controlSize = .regular
+        control.font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular))
+        control.trackingMode = .selectOne
+        control.segmentDistribution = .fillEqually
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.selectOption(_:))
+        control.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        control.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.selection = $selection
+        if context.coordinator.options != options {
+            context.coordinator.options = options
+            control.segmentCount = options.count
+            for (index, option) in options.enumerated() {
+                control.setLabel(option.title, forSegment: index)
+                control.setEnabled(option.isEnabled, forSegment: index)
+            }
+        }
+        control.selectedSegment = options.firstIndex { $0.id == selection } ?? -1
+        control.setAccessibilityLabel(label)
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSSegmentedControl, context: Context) -> CGSize? {
+        let intrinsicSize = nsView.intrinsicContentSize
+        let width = proposal.width.flatMap { $0.isFinite ? $0 : nil } ?? intrinsicSize.width
+        return CGSize(width: max(0, width), height: intrinsicSize.height)
+    }
+
+    final class Coordinator: NSObject {
+        var selection: Binding<String>
+        var options: [SettingsPopup.Option] = []
+
+        init(selection: Binding<String>) { self.selection = selection }
+
+        @objc func selectOption(_ sender: NSSegmentedControl) {
+            guard options.indices.contains(sender.selectedSegment), options[sender.selectedSegment].isEnabled else { return }
+            selection.wrappedValue = options[sender.selectedSegment].id
+        }
+    }
+}
+
 struct AppIconView: View {
     let appURL: URL?
     let symbol: String
