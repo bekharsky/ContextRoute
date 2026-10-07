@@ -201,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let showsWindowOnLaunch = isInteractiveLaunch(notification)
         NSApp.setActivationPolicy(.accessory)
         NSApp.appearance = AppearanceChoice.current.nativeAppearance
         let model = RouterModel.shared
@@ -212,11 +213,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         _ = model.captureCurrentDefaultBrowserIfPossible()
         model.refreshDefaultHandlerStatus()
+        guard showsWindowOnLaunch else { return }
+
         let setupKey = "app.contextroute.hasPresentedInitialSetup"
-        if !UserDefaults.standard.bool(forKey: setupKey) {
-            UserDefaults.standard.set(true, forKey: setupKey)
-            if !model.isContextRouteDefaultHandler { showLinkSetup() }
+        let needsInitialSetup = !UserDefaults.standard.bool(forKey: setupKey) && !model.isContextRouteDefaultHandler
+        UserDefaults.standard.set(true, forKey: setupKey)
+        if needsInitialSetup { showLinkSetup() }
+        else { showSettingsWindow() }
+    }
+
+    private func isInteractiveLaunch(_ notification: Notification) -> Bool {
+        // The launch Apple event is only available during didFinishLaunching.
+        if let event = NSAppleEventManager.shared().currentAppleEvent {
+            guard event.eventID == AEEventID(kAEOpenApplication) || event.eventID == AEEventID(kAEReopenApplication) else { return false }
+            let launchReason = event.paramDescriptor(forKeyword: AEKeyword(keyAEPropData))?.enumCodeValue
+            return launchReason != OSType(keyAELaunchedAsLogInItem)
+                && launchReason != OSType(keyAELaunchedAsServiceItem)
         }
+        return notification.userInfo?[NSApplication.launchIsDefaultUserInfoKey] as? Bool ?? true
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

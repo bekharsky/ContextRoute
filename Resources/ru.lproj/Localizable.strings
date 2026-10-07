@@ -119,7 +119,6 @@
 "App route" = "Правило приложения";
 "Unavailable" = "Недоступно";
 "Source app" = "Приложение-источник";
-"Advanced" = "Дополнительно";
 "%@ (not installed)" = "%@ (не установлено)";
 "%@ (unavailable)" = "%@ (недоступен)";
 "%@ is not installed. Choose another browser." = "%@ не установлен. Выберите другой браузер.";
@@ -198,9 +197,6 @@
 "Minimize" = "Свернуть";
 "Zoom" = "Изменить масштаб";
 "Bring All to Front" = "Все окна на передний план";
-"App identifier" = "Идентификатор";
 "Profile folder" = "Папка профилей";
 "Use default folder" = "Стандартная папка";
 "Choose the folder containing %@, not an individual profile folder." = "Выбери папку с %@, а не папку отдельного профиля.";
-"Expanded" = "Развёрнуто";
-"Collapsed" = "Свёрнуто";

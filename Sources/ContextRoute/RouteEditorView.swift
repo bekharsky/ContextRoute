@@ -13,7 +13,6 @@ struct RouteEditorView: View {
     @State private var userDataDirectory: String
     @State private var profileIdentifier: String
     @State private var profileScan: ProfileScanResult?
-    @State private var showsAdvanced = false
     @State private var scanGeneration = 0
     @State private var isScanning = false
     @State private var confirmsReplacement = false
@@ -45,6 +44,11 @@ struct RouteEditorView: View {
         guard let browser = selectedBrowser, let defaultFolder = BrowserCatalog.defaultUserDataDirectory(for: browser) else { return true }
         return userDataDirectory.isEmpty || BrowserCatalog.expandHome(userDataDirectory) == defaultFolder
     }
+    private var profileFolderPath: String {
+        userDataDirectory.isEmpty
+            ? selectedBrowser.flatMap { BrowserCatalog.defaultUserDataDirectory(for: $0) } ?? ""
+            : BrowserCatalog.expandHome(userDataDirectory)
+    }
     private var browserOptions: [RouteEditorPopup.Option] {
         var options = browsers.map { RouteEditorPopup.Option(id: $0.bundleIdentifier, title: $0.name) }
         if selectedBrowser == nil, !browserBundleIdentifier.isEmpty {
@@ -74,9 +78,6 @@ struct RouteEditorView: View {
                 VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
                     sourceAppCard
                     browserCard
-                    if !sourceBundleIdentifier.isEmpty || selectedBrowser.map({ BrowserCatalog.supportsProfiles(for: $0) }) == true {
-                        advancedCard
-                    }
                     if let replacement {
                         Label(ContextRouteLocalization.format("Saving replaces the existing route for %@. You can undo this change.", arguments: [replacement.sourceName]),
                             systemImage: "arrow.triangle.2.circlepath")
@@ -130,6 +131,7 @@ struct RouteEditorView: View {
                     AppIconView(appURL: BrowserCatalog.applicationURL(bundleIdentifier: sourceBundleIdentifier), symbol: "app.fill", size: RouteEditorLayout.iconSize)
                     Text(sourceName.isEmpty ? ContextRouteLocalization.string("Choose an app") : sourceName)
                         .font(.body.weight(.medium)).lineLimit(1).truncationMode(.middle)
+                        .help(sourceBundleIdentifier)
                     Spacer(minLength: RouteEditorLayout.controlSpacing)
                     Button("Choose app…", action: chooseSourceApplication).buttonStyle(.bordered).fixedSize()
                     activitySpace
@@ -159,6 +161,7 @@ struct RouteEditorView: View {
                             profileActivity
                         }
                     }
+                    profileFolderControls(for: browser)
                     profileFeedback
                 } else if selectedBrowser == nil {
                     Label("Choose an installed browser to save this route.", systemImage: "exclamationmark.triangle.fill")
@@ -206,12 +209,9 @@ struct RouteEditorView: View {
     @ViewBuilder
     private var profileFeedback: some View {
         if let failure = profileScan?.failureMessage {
-            VStack(alignment: .leading, spacing: RouteEditorLayout.controlSpacing) {
-                Label(failure, systemImage: "exclamationmark.triangle.fill")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                Button("Profile folder…", action: chooseUserDataDirectory).buttonStyle(.link)
-            }
+            Label(failure, systemImage: "exclamationmark.triangle.fill")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         } else if profileScan != nil, !profileSelectionIsValid, !isScanning {
             Text("This profile wasn't found in the selected folder. Choose it again or change the folder.")
                 .font(.callout).foregroundStyle(.secondary)
@@ -219,44 +219,34 @@ struct RouteEditorView: View {
         }
     }
 
-    private var advancedCard: some View {
-        SettingsCard(inset: 0) {
-            DisclosureGroup("Advanced", isExpanded: $showsAdvanced) {
-                VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
-                    if !sourceBundleIdentifier.isEmpty {
-                        formRow("App identifier", alignment: .top) {
-                            Text(sourceBundleIdentifier).font(.caption.monospaced())
-                                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                        }
+    private func profileFolderControls(for browser: BrowserInfo) -> some View {
+        HStack(alignment: .top, spacing: RouteEditorLayout.controlSpacing) {
+            Color.clear
+                .frame(width: RouteEditorLayout.labelWidth + RouteEditorLayout.sectionSpacing + RouteEditorLayout.iconSize, height: 0)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: RouteEditorLayout.controlSpacing) {
+                Text((profileFolderPath as NSString).abbreviatingWithTildeInPath)
+                    .font(.caption.monospaced()).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .textSelection(.enabled).help(profileFolderPath)
+                    .accessibilityLabel("Profile folder")
+                    .accessibilityValue(profileFolderPath)
+                HStack(spacing: RouteEditorLayout.controlSpacing) {
+                    Button("Profile folder…", action: chooseUserDataDirectory)
+                        .buttonStyle(.bordered)
+                        .help(ContextRouteLocalization.format("Choose the folder containing %@, not an individual profile folder.",
+                            arguments: [BrowserCatalog.metadataFileName(for: browser) ?? "profiles"]))
+                    Button("Use default folder") {
+                        userDataDirectory = BrowserCatalog.defaultUserDataDirectory(for: browser) ?? ""
+                        profileIdentifier = ""
+                        scanGeneration += 1
                     }
-                    if let browser = selectedBrowser, BrowserCatalog.supportsProfiles(for: browser) {
-                        if !sourceBundleIdentifier.isEmpty { Divider() }
-                        formRow("Profile folder", alignment: .top) {
-                            VStack(alignment: .leading, spacing: RouteEditorLayout.controlSpacing) {
-                                Text(userDataDirectory).font(.caption.monospaced()).foregroundStyle(.secondary)
-                                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                                HStack(spacing: RouteEditorLayout.controlSpacing) {
-                                    Button("Profile folder…", action: chooseUserDataDirectory).buttonStyle(.bordered)
-                                    Button("Use default folder") {
-                                        userDataDirectory = BrowserCatalog.defaultUserDataDirectory(for: browser) ?? ""
-                                        profileIdentifier = ""
-                                        scanGeneration += 1
-                                    }
-                                    .buttonStyle(.bordered).disabled(usesDefaultProfileFolder)
-                                }
-                                .controlSize(.small)
-                                Text(ContextRouteLocalization.format("Choose the folder containing %@, not an individual profile folder.",
-                                    arguments: [BrowserCatalog.metadataFileName(for: browser) ?? "profiles"]))
-                                    .font(.caption).foregroundStyle(.secondary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-                        }
-                    }
+                    .buttonStyle(.bordered).disabled(usesDefaultProfileFolder)
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .controlSize(.small)
             }
-            .disclosureGroupStyle(RouteEditorDisclosureStyle())
             .frame(maxWidth: .infinity, alignment: .leading)
+            activitySpace
         }
     }
 

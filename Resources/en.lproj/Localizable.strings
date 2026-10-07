@@ -119,7 +119,6 @@
 "App route" = "App route";
 "Unavailable" = "Unavailable";
 "Source app" = "Source app";
-"Advanced" = "Advanced";
 "%@ (not installed)" = "%@ (not installed)";
 "%@ (unavailable)" = "%@ (unavailable)";
 "%@ is not installed. Choose another browser." = "%@ is not installed. Choose another browser.";
@@ -198,9 +197,6 @@
 "Minimize" = "Minimize";
 "Zoom" = "Zoom";
 "Bring All to Front" = "Bring All to Front";
-"App identifier" = "App identifier";
 "Profile folder" = "Profile folder";
 "Use default folder" = "Use default folder";
 "Choose the folder containing %@, not an individual profile folder." = "Choose the folder containing %@, not an individual profile folder.";
-"Expanded" = "Expanded";
-"Collapsed" = "Collapsed";
