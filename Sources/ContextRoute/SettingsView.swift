@@ -69,6 +69,7 @@ struct SettingsView: View {
     @State private var searchText = ""
     @State private var sectionHistory: [SettingsSection] = [.routes]
     @State private var historyPosition = 0
+    @ObservedObject var focusVisibility: SettingsFocusVisibility
 
     private var appearanceChoice: AppearanceChoice {
         AppearanceChoice(rawValue: appearanceRawValue) ?? .system
@@ -135,8 +136,13 @@ struct SettingsView: View {
 
     var body: some View {
         SettingsSplitContainer(
-            sidebar: AnyView(sidebar.environment(\.locale, interfaceLanguage.locale)),
-            detail: AnyView(detail.environment(\.locale, interfaceLanguage.locale)),
+            sidebar: AnyView(sidebar
+                .environment(\.locale, interfaceLanguage.locale)
+                .focusEffectDisabled(!focusVisibility.usesKeyboard)),
+            detail: AnyView(detail
+                .environment(\.locale, interfaceLanguage.locale)
+                .focusEffectDisabled(!focusVisibility.usesKeyboard)),
+            focusVisibility: focusVisibility,
             searchText: $searchText,
             title: selectedSection.resolvedTitle,
             showsRefresh: selectedSection != .appearance,
@@ -149,12 +155,14 @@ struct SettingsView: View {
         .ignoresSafeArea()
         .preferredColorScheme(appearanceChoice.colorScheme)
         .environment(\.locale, interfaceLanguage.locale)
+        .focusEffectDisabled(!focusVisibility.usesKeyboard)
         .onAppear(perform: syncFallbackSelection)
         .onChange(of: searchText) { _, _ in
             selectFirstMatchingSectionIfNeeded()
         }
         .sheet(isPresented: $isEditingRoute) {
             RouteEditorView(model: model, browsers: browsers, route: editingRoute)
+                .focusEffectDisabled(!focusVisibility.usesKeyboard)
         }
         .onChange(of: isEditingRoute) { _, isOpen in
             if !isOpen { editingRoute = nil }
@@ -576,9 +584,90 @@ private extension View {
     }
 }
 
+final class SettingsFocusVisibility: ObservableObject {
+    @Published private(set) var usesKeyboard = false
+    private weak var window: NSWindow?
+    private var eventMonitor: Any?
+    private let originalRingTypes = NSMapTable<NSView, NSNumber>(
+        keyOptions: .weakMemory, valueOptions: .strongMemory)
+
+    deinit {
+        if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+    }
+
+    func prepareForPresentation() {
+        setUsesKeyboard(NSApp.currentEvent?.type == .keyDown)
+    }
+
+    func attach(to window: NSWindow) {
+        self.window = window
+        if eventMonitor == nil {
+            eventMonitor = NSEvent.addLocalMonitorForEvents(
+                matching: [.keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown]
+            ) { [weak self] event in
+                guard let self else { return event }
+                if event.type == .keyDown {
+                    guard let eventWindow = event.window ?? NSApp.keyWindow,
+                          self.settingsWindows.contains(where: { $0 === eventWindow }) else { return event }
+                    self.setUsesKeyboard(true)
+                } else {
+                    self.setUsesKeyboard(false)
+                }
+                return event
+            }
+        }
+        refreshNativeFocus()
+        // SwiftUI may create native controls after its representable update finishes.
+        DispatchQueue.main.async { [weak self] in self?.refreshNativeFocus() }
+    }
+
+    private var settingsWindows: [NSWindow] {
+        guard let window else { return [] }
+        func includingSheets(_ window: NSWindow) -> [NSWindow] {
+            [window] + window.sheets.flatMap(includingSheets)
+        }
+        return includingSheets(window)
+    }
+
+    private func setUsesKeyboard(_ value: Bool) {
+        if usesKeyboard != value { usesKeyboard = value }
+        refreshNativeFocus()
+        DispatchQueue.main.async { [weak self] in self?.refreshNativeFocus() }
+    }
+
+    private func refreshNativeFocus() {
+        for window in settingsWindows {
+            // The frame view also contains the native toolbar controls.
+            if let root = window.contentView?.superview ?? window.contentView {
+                updateRingTypes(in: root)
+            }
+        }
+    }
+
+    private func updateRingTypes(in view: NSView) {
+        let originalType: NSFocusRingType
+        if let savedType = originalRingTypes.object(forKey: view) {
+            originalType = NSFocusRingType(rawValue: savedType.uintValue) ?? .default
+        } else {
+            // SwiftUI may create a control while its focus effect is already disabled.
+            originalType = !usesKeyboard && view.focusRingType == .none
+                ? type(of: view).defaultFocusRingType
+                : view.focusRingType
+            originalRingTypes.setObject(NSNumber(value: originalType.rawValue), forKey: view)
+        }
+        let ringType: NSFocusRingType = usesKeyboard ? originalType : .none
+        if view.focusRingType != ringType {
+            view.focusRingType = ringType
+            view.noteFocusRingMaskChanged()
+        }
+        for child in view.subviews { updateRingTypes(in: child) }
+    }
+}
+
 private struct SettingsSplitContainer: NSViewControllerRepresentable {
     let sidebar: AnyView
     let detail: AnyView
+    let focusVisibility: SettingsFocusVisibility
     @Binding var searchText: String
     let title: String
     let showsRefresh: Bool
@@ -596,7 +685,7 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
 
     func makeNSViewController(context: Context) -> SettingsSplitController {
         let controller = SettingsSplitController(sidebar: sidebar, detail: detail)
-        context.coordinator.attach(to: controller)
+        context.coordinator.attach(to: controller, focusVisibility: focusVisibility)
         controller.windowDidChange = { [weak coordinator = context.coordinator] window in
             coordinator?.install(in: window)
         }
@@ -628,6 +717,7 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
 
         private weak var controller: SettingsSplitController?
         private weak var window: NSWindow?
+        private weak var focusVisibility: SettingsFocusVisibility?
         private var toolbar: NSToolbar?
         private var collapseObservation: NSKeyValueObservation?
         private var searchText: Binding<String>?
@@ -643,8 +733,9 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
         private var titleItem: NSToolbarItem?
         private var titleField: NSTextField?
 
-        func attach(to controller: SettingsSplitController) {
+        func attach(to controller: SettingsSplitController, focusVisibility: SettingsFocusVisibility) {
             self.controller = controller
+            self.focusVisibility = focusVisibility
             controller.searchAccessory.searchField.delegate = self
             collapseObservation = controller.sidebarItem.observe(\.isCollapsed, options: [.new]) { [weak self] _, _ in
                 self?.updateSidebarItem()
@@ -687,6 +778,7 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
             window.title = title
             window.titleVisibility = .hidden
             window.toolbarStyle = .unified
+            focusVisibility?.attach(to: window)
 
             guard window.toolbar?.identifier != Self.toolbarIdentifier else { return }
 
@@ -699,6 +791,7 @@ private struct SettingsSplitContainer: NSViewControllerRepresentable {
             self.toolbar = toolbar
             window.toolbar = toolbar
             controller.view.layoutSubtreeIfNeeded()
+            focusVisibility?.attach(to: window)
         }
 
         func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {

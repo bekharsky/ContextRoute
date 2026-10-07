@@ -30,15 +30,17 @@ struct ContextRouteApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsWindow: NSWindow?
+    private let focusVisibility = SettingsFocusVisibility()
 
     func showSettingsWindow() {
+        focusVisibility.prepareForPresentation()
         if let settingsWindow {
             bringSettingsWindowForward(settingsWindow)
             return
         }
 
         let hostingController = NSHostingController(
-            rootView: SettingsView(model: RouterModel.shared))
+            rootView: SettingsView(model: RouterModel.shared, focusVisibility: focusVisibility))
         hostingController.sizingOptions = []
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
