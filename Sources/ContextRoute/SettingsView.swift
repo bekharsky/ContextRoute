@@ -162,6 +162,7 @@ struct SettingsView: View {
         .overlay(alignment: .topLeading) {
             SettingsWindowToolbarBridge(
                 title: selectedSection.resolvedTitle,
+                showsRefresh: selectedSection != .appearance,
                 visibility: $columnVisibility,
                 canNavigateBack: canNavigateBack,
                 canNavigateForward: canNavigateForward,
@@ -622,6 +623,7 @@ private extension View {
 
 private struct SettingsWindowToolbarBridge: NSViewRepresentable {
     let title: String
+    let showsRefresh: Bool
     @Binding var visibility: NavigationSplitViewVisibility
     let canNavigateBack: Bool
     let canNavigateForward: Bool
@@ -645,6 +647,7 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
         let coordinator = context.coordinator
         coordinator.update(
             title: title,
+            showsRefresh: showsRefresh,
             visibility: $visibility,
             canNavigateBack: canNavigateBack,
             canNavigateForward: canNavigateForward,
@@ -661,27 +664,29 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
         private static let toolbarIdentifier = NSToolbar.Identifier("ContextRoute.SettingsToolbar")
         private static let sidebarIdentifier = NSToolbarItem.Identifier("ContextRoute.SidebarToggle")
         private static let navigationIdentifier = NSToolbarItem.Identifier("ContextRoute.Navigation")
+        private static let backIdentifier = NSToolbarItem.Identifier("ContextRoute.Back")
+        private static let forwardIdentifier = NSToolbarItem.Identifier("ContextRoute.Forward")
         private static let titleIdentifier = NSToolbarItem.Identifier("ContextRoute.SectionTitle")
         private static let refreshIdentifier = NSToolbarItem.Identifier("ContextRoute.Refresh")
 
         private weak var window: NSWindow?
         private var toolbar: NSToolbar?
         private var title = ""
+        private var showsRefresh = true
         private var visibility: Binding<NavigationSplitViewVisibility>?
         private var canNavigateBack = false
         private var canNavigateForward = false
         private var onBack: () -> Void = {}
         private var onForward: () -> Void = {}
         private var onRefresh: () -> Void = {}
-
-        private var sidebarHost: NSHostingView<AnyView>?
-        private var navigationHost: NSHostingView<AnyView>?
+        private var sidebarItem: NSToolbarItem?
+        private var navigationItem: NSToolbarItemGroup?
         private var titleItem: NSToolbarItem?
-        private var titleHost: NSHostingView<AnyView>?
-        private var refreshHost: NSHostingView<AnyView>?
+        private var titleField: NSTextField?
 
         func update(
             title: String,
+            showsRefresh: Bool,
             visibility: Binding<NavigationSplitViewVisibility>,
             canNavigateBack: Bool,
             canNavigateForward: Bool,
@@ -690,6 +695,7 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             onRefresh: @escaping () -> Void
         ) {
             self.title = title
+            self.showsRefresh = showsRefresh
             self.visibility = visibility
             self.canNavigateBack = canNavigateBack
             self.canNavigateForward = canNavigateForward
@@ -697,7 +703,7 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
             self.onForward = onForward
             self.onRefresh = onRefresh
 
-            installHostedContent()
+            updateToolbarItems()
             window?.title = title
         }
 
@@ -721,20 +727,21 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
         }
 
         func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+            // Keep the tracking separator first so every control stays in the content toolbar.
             [
-                Self.sidebarIdentifier,
                 .sidebarTrackingSeparator,
+                Self.sidebarIdentifier,
                 Self.navigationIdentifier,
                 Self.titleIdentifier,
-                .flexibleSpace,
-                Self.refreshIdentifier
+                .flexibleSpace
             ]
+            + (showsRefresh ? [Self.refreshIdentifier] : [])
         }
 
         func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
             [
-                Self.sidebarIdentifier,
                 .sidebarTrackingSeparator,
+                Self.sidebarIdentifier,
                 Self.navigationIdentifier,
                 Self.titleIdentifier,
                 .space,
@@ -750,100 +757,136 @@ private struct SettingsWindowToolbarBridge: NSViewRepresentable {
         ) -> NSToolbarItem? {
             switch itemIdentifier {
             case Self.sidebarIdentifier:
-                guard let visibility else { return nil }
-                let (item, host) = makeItem(
+                let item = makeItem(
                     identifier: itemIdentifier,
-                    label: ContextRouteLocalization.string("Toggle sidebar"),
-                    content: AnyView(SidebarToolbarButton(visibility: visibility)))
-                sidebarHost = host
+                    label: sidebarLabel,
+                    symbol: sidebarSymbol,
+                    action: #selector(toggleSidebar(_:)))
+                sidebarItem = item
                 return item
 
             case Self.navigationIdentifier:
-                let (item, host) = makeItem(
-                    identifier: itemIdentifier,
-                    label: ContextRouteLocalization.string("Back and forward"),
-                    content: navigationContent())
-                navigationHost = host
-                return item
+                let back = makeItem(
+                    identifier: Self.backIdentifier,
+                    label: ContextRouteLocalization.string("Back"),
+                    symbol: "chevron.backward",
+                    action: #selector(goBack(_:)))
+                let forward = makeItem(
+                    identifier: Self.forwardIdentifier,
+                    label: ContextRouteLocalization.string("Forward"),
+                    symbol: "chevron.forward",
+                    action: #selector(goForward(_:)))
+                back.isEnabled = canNavigateBack
+                forward.isEnabled = canNavigateForward
+
+                let group = NSToolbarItemGroup(itemIdentifier: itemIdentifier)
+                group.label = ContextRouteLocalization.string("Back and forward")
+                group.paletteLabel = group.label
+                group.controlRepresentation = .expanded
+                group.selectionMode = .momentary
+                group.subitems = [back, forward]
+                navigationItem = group
+                return group
 
             case Self.titleIdentifier:
-                let (item, host) = makeItem(
-                    identifier: itemIdentifier,
-                    label: title,
-                    content: titleContent())
+                let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+                item.label = title
+                item.paletteLabel = title
+                let field = NSTextField(labelWithString: title)
+                field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .regular), weight: .semibold)
+                field.lineBreakMode = .byTruncatingTail
+                field.maximumNumberOfLines = 1
+                field.setContentHuggingPriority(.required, for: .horizontal)
+                field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+                field.sizeToFit()
+                item.view = field
                 titleItem = item
-                titleHost = host
+                titleField = field
                 return item
 
             case Self.refreshIdentifier:
-                let (item, host) = makeItem(
+                return makeItem(
                     identifier: itemIdentifier,
                     label: ContextRouteLocalization.string("Refresh apps and browsers"),
-                    content: refreshContent())
-                refreshHost = host
-                return item
+                    symbol: "arrow.clockwise",
+                    action: #selector(refresh(_:)))
 
             default:
                 return nil
             }
         }
 
+        private var sidebarSymbol: String {
+            visibility?.wrappedValue == .detailOnly ? "sidebar.right" : "sidebar.left"
+        }
+
+        private var sidebarLabel: String {
+            ContextRouteLocalization.string(visibility?.wrappedValue == .detailOnly ? "Show sidebar" : "Hide sidebar")
+        }
+
         private func makeItem(
             identifier: NSToolbarItem.Identifier,
             label: String,
-            content: AnyView
-        ) -> (NSToolbarItem, NSHostingView<AnyView>) {
+            symbol: String,
+            action: Selector
+        ) -> NSToolbarItem {
             let item = NSToolbarItem(itemIdentifier: identifier)
             item.label = label
             item.paletteLabel = label
-            let host = NSHostingView(rootView: content)
-            host.sizingOptions = [.intrinsicContentSize]
-            item.view = host
-            return (item, host)
+            item.toolTip = label
+            item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+            item.target = self
+            item.action = action
+            return item
         }
 
-        private func installHostedContent() {
-            if let sidebarHost, let visibility {
-                update(host: sidebarHost, content: AnyView(SidebarToolbarButton(visibility: visibility)))
+        private func updateToolbarItems() {
+            if let sidebarItem {
+                sidebarItem.image = NSImage(systemSymbolName: sidebarSymbol, accessibilityDescription: sidebarLabel)
+                sidebarItem.label = sidebarLabel
+                sidebarItem.paletteLabel = sidebarLabel
+                sidebarItem.toolTip = sidebarLabel
             }
-            if let navigationHost {
-                update(host: navigationHost, content: navigationContent())
+            if let navigationItem, navigationItem.subitems.count == 2 {
+                navigationItem.subitems[0].isEnabled = canNavigateBack
+                navigationItem.subitems[1].isEnabled = canNavigateForward
             }
-            if let titleHost {
-                update(host: titleHost, content: titleContent())
+            if let titleField {
+                titleField.stringValue = title
+                titleField.sizeToFit()
+                titleField.invalidateIntrinsicContentSize()
                 titleItem?.label = title
                 titleItem?.paletteLabel = title
             }
-            if let refreshHost {
-                update(host: refreshHost, content: refreshContent())
+            if let toolbar {
+                let refreshIndex = toolbar.items.firstIndex { $0.itemIdentifier == Self.refreshIdentifier }
+                if showsRefresh && refreshIndex == nil {
+                    toolbar.insertItem(withItemIdentifier: Self.refreshIdentifier, at: toolbar.items.count)
+                } else if !showsRefresh, let refreshIndex {
+                    toolbar.removeItem(at: refreshIndex)
+                }
             }
+            toolbar?.validateVisibleItems()
         }
 
-        private func navigationContent() -> AnyView {
-            AnyView(
-                ToolbarNavigationButtons(
-                    canNavigateBack: canNavigateBack,
-                    canNavigateForward: canNavigateForward,
-                    onBack: onBack,
-                    onForward: onForward))
+        @objc private func toggleSidebar(_ sender: Any?) {
+            guard let visibility else { return }
+            visibility.wrappedValue = visibility.wrappedValue == .detailOnly ? .all : .detailOnly
         }
 
-        private func titleContent() -> AnyView {
-            AnyView(
-                Text(verbatim: title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .padding(.horizontal, 3))
+        @objc private func goBack(_ sender: Any?) {
+            guard canNavigateBack else { return }
+            onBack()
         }
 
-        private func refreshContent() -> AnyView {
-            AnyView(ToolbarRefreshButton(action: onRefresh))
+        @objc private func goForward(_ sender: Any?) {
+            guard canNavigateForward else { return }
+            onForward()
         }
 
-        private func update(host: NSHostingView<AnyView>, content: AnyView) {
-            host.rootView = content
-            host.invalidateIntrinsicContentSize()
+        @objc private func refresh(_ sender: Any?) {
+            guard showsRefresh else { return }
+            onRefresh()
         }
     }
 }
@@ -854,78 +897,6 @@ private final class ToolbarAnchorView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         windowDidChange?(window)
-    }
-}
-
-private struct SidebarToolbarButton: View {
-    @Binding var visibility: NavigationSplitViewVisibility
-
-    private var isVisible: Bool { visibility != .detailOnly }
-
-    var body: some View {
-        Button {
-            withAnimation(.easeInOut(duration: 0.18)) {
-                visibility = isVisible ? .detailOnly : .all
-            }
-        } label: {
-            Image(systemName: isVisible ? "sidebar.left" : "sidebar.right")
-                .font(.system(size: 16, weight: .regular))
-                .frame(width: 20, height: 20)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .frame(width: 40, height: 36)
-        .help(ContextRouteLocalization.string(isVisible ? "Hide sidebar" : "Show sidebar"))
-        .accessibilityLabel(Text(verbatim: ContextRouteLocalization.string(isVisible ? "Hide sidebar" : "Show sidebar")))
-    }
-}
-
-private struct ToolbarNavigationButtons: View {
-    let canNavigateBack: Bool
-    let canNavigateForward: Bool
-    let onBack: () -> Void
-    let onForward: () -> Void
-
-    var body: some View {
-        ControlGroup {
-            Button(action: onBack) {
-                Image(systemName: "chevron.left")
-            }
-            .help(ContextRouteLocalization.string("Back"))
-            .accessibilityLabel(Text(verbatim: ContextRouteLocalization.string("Back")))
-            .disabled(!canNavigateBack)
-
-            Button(action: onForward) {
-                Image(systemName: "chevron.right")
-            }
-            .help(ContextRouteLocalization.string("Forward"))
-            .accessibilityLabel(Text(verbatim: ContextRouteLocalization.string("Forward")))
-            .disabled(!canNavigateForward)
-        }
-        .controlGroupStyle(.navigation)
-        .controlSize(.large)
-        .fixedSize()
-    }
-}
-
-private struct ToolbarRefreshButton: View {
-    let action: () -> Void
-
-    private var label: String {
-        ContextRouteLocalization.string("Refresh apps and browsers")
-    }
-
-    var body: some View {
-        Button(action: action) {
-            Image(systemName: "arrow.clockwise")
-                .font(.system(size: 16, weight: .regular))
-                .frame(width: 20, height: 20)
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.large)
-        .frame(width: 40, height: 36)
-        .help(label)
-        .accessibilityLabel(Text(verbatim: label))
     }
 }
 
