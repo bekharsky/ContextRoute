@@ -198,3 +198,7 @@
 "Minimize" = "Minimize";
 "Zoom" = "Zoom";
 "Bring All to Front" = "Bring All to Front";
+"App identifier" = "App identifier";
+"Profile folder" = "Profile folder";
+"Use default folder" = "Use default folder";
+"Choose the folder containing %@, not an individual profile folder." = "Choose the folder containing %@, not an individual profile folder.";
