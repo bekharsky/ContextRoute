@@ -6,6 +6,10 @@
 "Clear search" = "Clear search";
 "Back" = "Back";
 "Forward" = "Forward";
+"Hide sidebar" = "Hide sidebar";
+"Show sidebar" = "Show sidebar";
+"Toggle sidebar" = "Toggle sidebar";
+"Back and forward" = "Back and forward";
 "No settings found" = "No settings found";
 "No routes found" = "No routes found";
 "Try another name or keyword." = "Try another name or keyword.";

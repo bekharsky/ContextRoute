@@ -6,6 +6,10 @@
 "Clear search" = "Очистить поиск";
 "Back" = "Назад";
 "Forward" = "Вперёд";
+"Hide sidebar" = "Скрыть боковую панель";
+"Show sidebar" = "Показать боковую панель";
+"Toggle sidebar" = "Переключить боковую панель";
+"Back and forward" = "Назад и вперёд";
 "No settings found" = "Настройки не найдены";
 "No routes found" = "Правила не найдены";
 "Try another name or keyword." = "Попробуй другое название или слово.";
