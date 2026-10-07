@@ -6,8 +6,7 @@ import UniformTypeIdentifiers
 private enum SettingsSection: CaseIterable, Identifiable, Hashable {
     case routes
     case handlers
-    case fallback
-    case appearance
+    case settings
 
     var id: Self { self }
 
@@ -15,8 +14,7 @@ private enum SettingsSection: CaseIterable, Identifiable, Hashable {
         switch self {
         case .routes: "App routes"
         case .handlers: "Default handlers"
-        case .fallback: "Fallback browser"
-        case .appearance: "Appearance"
+        case .settings: "Settings"
         }
     }
 
@@ -25,8 +23,7 @@ private enum SettingsSection: CaseIterable, Identifiable, Hashable {
         switch self {
         case .routes: key = "App routes"
         case .handlers: key = "Default handlers"
-        case .fallback: key = "Fallback browser"
-        case .appearance: key = "Appearance"
+        case .settings: key = "Settings"
         }
         return ContextRouteLocalization.string(key)
     }
@@ -35,8 +32,7 @@ private enum SettingsSection: CaseIterable, Identifiable, Hashable {
         switch self {
         case .routes: "arrow.triangle.branch"
         case .handlers: "arrow.up.right.square"
-        case .fallback: "globe"
-        case .appearance: "slider.horizontal.3"
+        case .settings: "gearshape"
         }
     }
 }
@@ -135,7 +131,7 @@ struct SettingsView: View {
             focusVisibility: focusVisibility,
             searchText: $searchText,
             title: selectedSection.resolvedTitle,
-            showsRefresh: selectedSection != .appearance,
+            showsRefresh: true,
             canNavigateBack: canNavigateBack,
             canNavigateForward: canNavigateForward,
             onBack: navigateBack,
@@ -155,7 +151,7 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showLinkSetupNotification)) { _ in
             searchText = ""
-            selectSection(model.fallbackBrowserBundleIdentifier == nil ? .fallback : .routes)
+            selectSection(model.fallbackBrowserBundleIdentifier == nil ? .settings : .routes)
         }
         .onChange(of: isEditingRoute) { _, isOpen in
             if !isOpen { editingRoute = nil }
@@ -173,8 +169,7 @@ struct SettingsView: View {
                 switch selectedSection {
                 case .routes: routesTab
                 case .handlers: handlersTab
-                case .fallback: fallbackTab
-                case .appearance: appearanceTab
+                case .settings: settingsTab
                 }
             }
         }
@@ -294,11 +289,11 @@ struct SettingsView: View {
         }
     }
 
-    private var fallbackTab: some View {
+    private var settingsTab: some View {
         pageContent {
             SettingsCard {
                 HStack(spacing: 10) {
-                    Text("Browser")
+                    Text("Fallback browser")
                     Spacer(minLength: 12)
                     AppIconView(appURL: selectedFallbackBrowser?.appURL, symbol: "globe", size: 24)
                     Picker("Fallback browser", selection: $fallbackBrowserID) {
@@ -316,49 +311,42 @@ struct SettingsView: View {
             }
 
             SectionIntro("Used for links without a matching app route. App routes and default handlers take priority.")
-        }
-    }
-
-    private var appearanceTab: some View {
-        pageContent {
-            SectionIntro("Choose how ContextRoute looks and which language it uses.")
 
             SettingsCard {
                 VStack(alignment: .leading, spacing: 13) {
-                    Label("Appearance", systemImage: "circle.lefthalf.filled")
-                        .font(.headline)
-                    Picker("Appearance", selection: $appearanceRawValue) {
-                        Text("System").tag(AppearanceChoice.system.rawValue)
-                        Text("Light").tag(AppearanceChoice.light.rawValue)
-                        Text("Dark").tag(AppearanceChoice.dark.rawValue)
+                    HStack(spacing: 12) {
+                        Text("Appearance")
+                        Spacer(minLength: 12)
+                        Picker("Appearance", selection: $appearanceRawValue) {
+                            Text("System").tag(AppearanceChoice.system.rawValue)
+                            Text("Light").tag(AppearanceChoice.light.rawValue)
+                            Text("Dark").tag(AppearanceChoice.dark.rawValue)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.segmented)
+                        .frame(width: 230)
                     }
-                    .pickerStyle(.segmented)
                     Text("System follows the appearance set in macOS.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    Divider()
+
+                    HStack(spacing: 12) {
+                        Text("Language")
+                        Spacer(minLength: 12)
+                        Picker("Language", selection: $languageRawValue) {
+                            Text("English").tag(InterfaceLanguage.english.rawValue)
+                            Text("Русский").tag(InterfaceLanguage.russian.rawValue)
+                            Text("System language").tag(InterfaceLanguage.system.rawValue)
+                        }
+                        .labelsHidden()
+                        .pickerStyle(.menu)
+                        .frame(width: 190, alignment: .trailing)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-
-            SettingsCard {
-                HStack(spacing: 12) {
-                    Label("Language", systemImage: "character.bubble")
-                        .font(.headline)
-                    Spacer()
-                    Picker("Language", selection: $languageRawValue) {
-                        Text("English").tag(InterfaceLanguage.english.rawValue)
-                        Text("Русский").tag(InterfaceLanguage.russian.rawValue)
-                        Text("System language").tag(InterfaceLanguage.system.rawValue)
-                    }
-                    .labelsHidden()
-                    .pickerStyle(.menu)
-                    .frame(width: 190, alignment: .trailing)
-                }
-            }
-
-            Text("English is the default. Additional translations can be added in the app's localization files.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
         }
     }
 
@@ -410,7 +398,7 @@ struct SettingsView: View {
                         ? LocalizedStringKey("Setting default browser…")
                         : LocalizedStringKey("Make default browser")) {
                         if model.fallbackBrowserBundleIdentifier == nil {
-                            selectSection(.fallback)
+                            selectSection(.settings)
                         } else {
                             model.registerAsDefaultHandler()
                         }
@@ -482,14 +470,13 @@ struct SettingsView: View {
                 + model.urlAppOverrides.map { item in
                     (item.name, [item.name, item.id, item.matchSummary].joined(separator: " "))
                 }
-        case .fallback:
-            return [("Fallback browser", "fallback browser default browser резервный браузер браузер по умолчанию")]
-                + browsers.map { ($0.name, "\($0.name) \($0.bundleIdentifier)") }
-        case .appearance:
+        case .settings:
             return [
+                ("Settings", "settings preferences настройки параметры"),
+                ("Fallback browser", "fallback browser default browser резервный браузер браузер по умолчанию"),
                 ("Appearance", "appearance theme system light dark внешний вид системная светлая тёмная"),
                 ("Language", "language english russian system язык английский русский системный")
-            ]
+            ] + browsers.map { ($0.name, "\($0.name) \($0.bundleIdentifier)") }
         }
     }
 }
