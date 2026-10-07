@@ -163,6 +163,7 @@ struct SettingsView: View {
         .sheet(isPresented: $isEditingRoute) {
             RouteEditorView(model: model, browsers: browsers, route: editingRoute)
                 .focusEffectDisabled(!focusVisibility.usesKeyboard)
+                .presentationSizing(.fitted)
         }
         .onChange(of: isEditingRoute) { _, isOpen in
             if !isOpen { editingRoute = nil }
@@ -639,12 +640,25 @@ final class SettingsFocusVisibility: ObservableObject {
         for window in settingsWindows {
             // The frame view also contains the native toolbar controls.
             if let root = window.contentView?.superview ?? window.contentView {
-                updateRingTypes(in: root)
+                let windowButtons = Set([
+                    NSWindow.ButtonType.closeButton,
+                    .miniaturizeButton,
+                    .zoomButton
+                ].compactMap { window.standardWindowButton($0) }.map(ObjectIdentifier.init))
+                updateRingTypes(in: root, excluding: windowButtons)
             }
         }
     }
 
-    private func updateRingTypes(in view: NSView) {
+    private func updateRingTypes(in view: NSView, excluding windowButtons: Set<ObjectIdentifier>) {
+        guard !windowButtons.contains(ObjectIdentifier(view)) else { return }
+        if view is NSControl || view is NSScrollView {
+            updateControlRingType(view)
+        }
+        for child in view.subviews { updateRingTypes(in: child, excluding: windowButtons) }
+    }
+
+    private func updateControlRingType(_ view: NSView) {
         let originalType: NSFocusRingType
         if let savedType = originalRingTypes.object(forKey: view) {
             originalType = NSFocusRingType(rawValue: savedType.uintValue) ?? .default
@@ -660,7 +674,6 @@ final class SettingsFocusVisibility: ObservableObject {
             view.focusRingType = ringType
             view.noteFocusRingMaskChanged()
         }
-        for child in view.subviews { updateRingTypes(in: child) }
     }
 }
 
@@ -1142,6 +1155,8 @@ private struct RouteEditorView: View {
                                 Text(sourceBundleIdentifier)
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
                             }
                         }
                         Spacer()
@@ -1231,7 +1246,6 @@ private struct RouteEditorView: View {
                 }
             }
 
-            Spacer(minLength: 0)
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }
@@ -1241,9 +1255,11 @@ private struct RouteEditorView: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(sourceBundleIdentifier.isEmpty || browserBundleIdentifier.isEmpty || !profileSelectionIsValid)
             }
+            .padding(.top, 5)
         }
         .padding(20)
-        .frame(width: 690, height: 590)
+        .frame(width: 580)
+        .fixedSize(horizontal: false, vertical: true)
         .environment(\.locale, InterfaceLanguage.current.locale)
         .onAppear(perform: refreshProfiles)
     }
