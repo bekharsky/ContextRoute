@@ -194,3 +194,7 @@
 "Unknown app" = "Unknown app";
 "Used for links without a matching app route. Open in apps and app routes take priority." = "Used for links without a matching app route. Open in apps and app routes take priority.";
 "Uses the app route for %@." = "Uses the app route for %@.";
+"Close Window" = "Close Window";
+"Minimize" = "Minimize";
+"Zoom" = "Zoom";
+"Bring All to Front" = "Bring All to Front";

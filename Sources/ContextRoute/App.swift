@@ -6,6 +6,7 @@ struct ContextRouteApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var model = RouterModel.shared
     @StateObject private var editingCommands = EditingCommandState()
+    @StateObject private var windowCommands = WindowCommandState()
     @AppStorage(InterfaceLanguage.defaultsKey) private var languageRawValue = InterfaceLanguage.english.rawValue
 
     private var interfaceLocale: Locale {
@@ -29,7 +30,7 @@ struct ContextRouteApp: App {
             .onAppear { model.refreshDefaultHandlerStatus() }
         }
         .menuBarExtraStyle(.menu)
-        .commandsReplaced {
+        .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("About ContextRoute") { appDelegate.showAboutWindow() }
                     .environment(\.locale, interfaceLocale)
@@ -39,6 +40,21 @@ struct ContextRouteApp: App {
                     .keyboardShortcut(",", modifiers: .command)
                     .environment(\.locale, interfaceLocale)
             }
+            CommandGroup(replacing: .appTermination) {
+                Button("Quit ContextRoute") { NSApp.terminate(nil) }
+                    .keyboardShortcut("q", modifiers: .command)
+                    .environment(\.locale, interfaceLocale)
+            }
+            CommandGroup(replacing: .newItem) { }
+            CommandGroup(replacing: .saveItem) {
+                Button("Close Window") {
+                    NSApp.sendAction(#selector(NSWindow.performClose(_:)), to: nil, from: nil)
+                }
+                .keyboardShortcut("w", modifiers: .command)
+                .disabled(!windowCommands.canClose)
+                .environment(\.locale, interfaceLocale)
+            }
+            CommandGroup(replacing: .printItem) { }
             CommandGroup(replacing: .undoRedo) {
                 Button("Undo") { editingCommands.undo(model) }
                     .keyboardShortcut("z", modifiers: .command)
@@ -50,6 +66,7 @@ struct ContextRouteApp: App {
                     .environment(\.locale, interfaceLocale)
             }
             TextEditingCommands()
+            WindowMenuCommands(windows: windowCommands, locale: interfaceLocale)
         }
     }
 }
@@ -61,6 +78,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var settingsWindow: NSWindow?
     private let focusVisibility = SettingsFocusVisibility()
     private let textUndoManager = UndoManager()
+    private var windowCloseObserver: NSObjectProtocol?
+    private var isTerminating = false
 
     func showSettingsWindow() {
         RouterModel.shared.refreshDefaultHandlerStatus()
@@ -120,8 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
                     .applying(NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor]))) ?? icon
         }
 
-        NSApp.unhide(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        activateForWindow()
         NSApp.orderFrontStandardAboutPanel(options: options)
         DispatchQueue.main.async {
             NSApp.activate(ignoringOtherApps: true)
@@ -131,8 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     private func bringSettingsWindowForward(_ window: NSWindow) {
         if window.isMiniaturized { window.deminiaturize(nil) }
-        NSApp.unhide(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        activateForWindow()
         window.makeKeyAndOrderFront(nil)
         window.orderFrontRegardless()
 
@@ -143,12 +160,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
     }
 
+    private func activateForWindow() {
+        // An accessory app has no application menu. Use the regular policy while
+        // a user-facing window is open, and return to the menu bar when it closes.
+        if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
+        NSApp.unhide(nil)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func returnToMenuBarIfNoWindows(excluding closingWindow: NSWindow) {
+        guard !isTerminating else { return }
+        let hasOpenWindow = NSApp.windows.contains { window in
+            window !== closingWindow && window.canBecomeKey && (window.isVisible || window.isMiniaturized)
+        }
+        if !hasOpenWindow, NSApp.activationPolicy() != .accessory {
+            NSApp.setActivationPolicy(.accessory)
+        }
+    }
+
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         showSettingsWindow()
         return false
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        windowCloseObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.willCloseNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let window = notification.object as? NSWindow, window.canBecomeKey else { return }
+            // AppKit posts willClose before updating its visible-window list.
+            DispatchQueue.main.async { [weak self] in
+                self?.returnToMenuBarIfNoWindows(excluding: window)
+            }
+        }
         NSAppleEventManager.shared().setEventHandler(
             self,
             andSelector: #selector(handleGetURL(event:reply:)),
@@ -177,6 +221,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
 
     func applicationDidBecomeActive(_ notification: Notification) {
         RouterModel.shared.refreshDefaultHandlerStatus()
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        isTerminating = true
+        if let windowCloseObserver { NotificationCenter.default.removeObserver(windowCloseObserver) }
     }
 
     func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {

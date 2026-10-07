@@ -194,3 +194,7 @@
 "Unknown app" = "Неизвестное приложение";
 "Used for links without a matching app route. Open in apps and app routes take priority." = "Для ссылок без подходящего правила. Открытие в приложениях и правила имеют приоритет.";
 "Uses the app route for %@." = "Используется правило приложения %@.";
+"Close Window" = "Закрыть окно";
+"Minimize" = "Свернуть";
+"Zoom" = "Изменить масштаб";
+"Bring All to Front" = "Все окна на передний план";
