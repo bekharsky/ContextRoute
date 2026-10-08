@@ -40,6 +40,10 @@ struct SettingsView: View {
         SettingsSplitContainer(
             sidebar: AnyView(sidebar.environment(\.locale, interfaceLanguage.locale)
                 .focusEffectDisabled(!focusVisibility.usesKeyboard)),
+            sidebarState: .init(selectedSection: selectedSection, searchQuery: searchQuery,
+                searchResults: searchQuery.isEmpty ? [] : searchResults,
+                isDefaultHandler: model.isContextRouteDefaultHandler,
+                language: language, appearance: appearance, usesKeyboard: focusVisibility.usesKeyboard),
             detail: AnyView(detail.environment(\.locale, interfaceLanguage.locale)
                 .focusEffectDisabled(!focusVisibility.usesKeyboard)),
             sheetContent: AnyView(sheetContent.environment(\.locale, interfaceLanguage.locale)
@@ -79,7 +83,12 @@ struct SettingsView: View {
             if searchQuery.isEmpty {
                 List(selection: sidebarSelection) {
                     ForEach(SettingsSection.allCases) { section in
-                        Label(section.title, systemImage: section.symbol).tag(section)
+                        Label {
+                            Text(section.title)
+                        } icon: {
+                            sidebarIcon(for: section)
+                        }
+                        .tag(section)
                     }
                 }
                 .listStyle(.sidebar).scrollContentBackground(.hidden)
@@ -90,7 +99,7 @@ struct SettingsView: View {
                     Section("Search results") {
                         ForEach(searchResults) { result in
                             HStack(spacing: 8) {
-                                Image(systemName: result.section.symbol).foregroundStyle(.tint).frame(width: 18)
+                                sidebarIcon(for: result.section).foregroundStyle(.tint).frame(width: 18)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(result.title).lineLimit(1)
                                     Text(result.section.resolvedTitle).font(.caption).foregroundStyle(.secondary)
@@ -112,6 +121,17 @@ struct SettingsView: View {
             }
             .padding(.horizontal, 16).padding(.top, 12).padding(.bottom, 14)
         }
+    }
+
+    private func sidebarIcon(for section: SettingsSection) -> some View {
+        Image(systemName: section.symbol)
+            .symbolVariant(.none)
+            .symbolEffectsRemoved()
+            .contentTransition(.identity)
+            .transaction { transaction in
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
     }
 
     private var detail: some View {
@@ -278,7 +298,11 @@ struct SettingsView: View {
         }
     }
 
-    private func refreshBrowsers() { browsers = BrowserCatalog.installedBrowsers(); model.refreshRouteAvailability() }
+    private func refreshBrowsers() {
+        let installedBrowsers = BrowserCatalog.installedBrowsers()
+        if browsers != installedBrowsers { browsers = installedBrowsers }
+        model.refreshRouteAvailability()
+    }
 
     private func selectSection(_ section: SettingsSection) {
         searchText = ""

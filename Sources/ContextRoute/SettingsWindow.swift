@@ -95,7 +95,18 @@ final class SettingsFocusVisibility: ObservableObject {
 }
 
 struct SettingsSplitContainer: NSViewControllerRepresentable {
+    struct SidebarState: Equatable {
+        let selectedSection: SettingsSection
+        let searchQuery: String
+        let searchResults: [SettingsSearchResult]
+        let isDefaultHandler: Bool
+        let language: String
+        let appearance: String
+        let usesKeyboard: Bool
+    }
+
     let sidebar: AnyView
+    let sidebarState: SidebarState
     let detail: AnyView
     let sheetContent: AnyView
     @Binding var isPresentingSheet: Bool
@@ -117,7 +128,7 @@ struct SettingsSplitContainer: NSViewControllerRepresentable {
 
     func makeNSViewController(context: Context) -> SettingsSplitController {
         let controller = SettingsSplitController(sidebar: sidebar, detail: detail)
-        context.coordinator.attach(to: controller, focusVisibility: focusVisibility)
+        context.coordinator.attach(to: controller, focusVisibility: focusVisibility, sidebarState: sidebarState)
         controller.windowDidChange = { [weak coordinator = context.coordinator] window in
             coordinator?.install(in: window)
         }
@@ -136,7 +147,7 @@ struct SettingsSplitContainer: NSViewControllerRepresentable {
             onBack: onBack,
             onForward: onForward,
             onRefresh: onRefresh)
-        controller.sidebarHost.rootView = sidebar
+        context.coordinator.updateSidebar(sidebar, state: sidebarState)
         controller.detailHost.rootView = detail
         context.coordinator.install(in: controller.view.window)
     }
@@ -150,6 +161,7 @@ struct SettingsSplitContainer: NSViewControllerRepresentable {
         private static let refreshIdentifier = NSToolbarItem.Identifier("ContextRoute.Refresh")
 
         private weak var controller: SettingsSplitController?
+        private var sidebarState: SidebarState?
         private weak var window: NSWindow?
         private weak var focusVisibility: SettingsFocusVisibility?
         private var toolbar: NSToolbar?
@@ -171,13 +183,20 @@ struct SettingsSplitContainer: NSViewControllerRepresentable {
         private var routeSheet: NSWindow.HostingSheetRepresentation<AnyView>?
         private var sheetUpdateScheduled = false
 
-        func attach(to controller: SettingsSplitController, focusVisibility: SettingsFocusVisibility) {
+        func attach(to controller: SettingsSplitController, focusVisibility: SettingsFocusVisibility, sidebarState: SidebarState) {
             self.controller = controller
             self.focusVisibility = focusVisibility
+            self.sidebarState = sidebarState
             controller.searchAccessory.searchField.delegate = self
             collapseObservation = controller.sidebarItem.observe(\.isCollapsed, options: [.new]) { [weak self] _, _ in
                 self?.updateSidebarItem()
             }
+        }
+
+        func updateSidebar(_ sidebar: AnyView, state: SidebarState) {
+            guard let controller, sidebarState != state else { return }
+            sidebarState = state
+            controller.sidebarHost.rootView = sidebar
         }
 
         func update(
