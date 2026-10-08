@@ -284,6 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         isTerminating = true
         editingCommands.stopMonitoring()
+        RouterModel.shared.flushDiagnostics()
         for observer in menuObservers { NotificationCenter.default.removeObserver(observer) }
         if let windowCloseObserver { NotificationCenter.default.removeObserver(windowCloseObserver) }
     }
@@ -293,6 +294,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     @objc func handleGetURL(event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
+        let receivedAt = DispatchTime.now().uptimeNanoseconds
         guard let rawURL = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: rawURL) else { return }
 
@@ -307,7 +309,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
 
         Task { @MainActor in
-            RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier)
+            RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier, receivedAt: receivedAt)
         }
     }
 }

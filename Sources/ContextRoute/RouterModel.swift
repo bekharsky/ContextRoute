@@ -32,6 +32,8 @@ final class RouterModel: ObservableObject {
 
     private let store = ConfigurationStore()
     private let launcher = BrowserLauncher()
+    private let routingQueue = DispatchQueue(label: "ContextRoute.routePlanning", qos: .userInitiated)
+    private let logQueue = DispatchQueue(label: "ContextRoute.routingLog", qos: .utility)
     private struct HistoryEntry {
         let configuration: RouterConfiguration
         let actionName: String
@@ -268,36 +270,66 @@ final class RouterModel: ObservableObject {
         RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration)
     }
 
-    func route(_ url: URL, sourceBundleIdentifier: String?) {
-        let result = decision(for: url, sourceBundleIdentifier: sourceBundleIdentifier)
-        if let warning = result.warnings.first {
-            routingIssue = RoutingIssue(message: warning, url: url, routeID: result.sourceRouteID, needsAttention: false)
-        }
-        if result.kind == .unavailable {
-            reportFailure(result.explanation, url: url, routeID: result.sourceRouteID)
-            return
-        }
-        log("\(result.kindName) → \(result.targetName) | \(safeURLLabel(url))")
-        launcher.open(result.destination) { [weak self] error in
-            guard let self, let error else { return }
-            self.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@", arguments: [result.targetName, error.localizedDescription]),
-                url: url, routeID: result.sourceRouteID)
-        }
+    func route(_ url: URL, sourceBundleIdentifier: String?, receivedAt: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+        planAndOpen(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration, receivedAt: receivedAt)
     }
 
     func retryInFallback(_ url: URL) {
         var fallbackOnly = configuration
         fallbackOnly.sourceRoutes = []
         fallbackOnly.urlAppOverrides = []
-        let result = RoutePlanner.decide(url, sourceBundleIdentifier: nil, configuration: fallbackOnly)
-        guard result.kind != .unavailable else {
-            reportFailure(result.explanation, url: url, routeID: nil)
+        planAndOpen(url, sourceBundleIdentifier: nil, configuration: fallbackOnly,
+            receivedAt: DispatchTime.now().uptimeNanoseconds, clearsPreviousIssue: true)
+    }
+
+    private func planAndOpen(_ url: URL, sourceBundleIdentifier: String?, configuration: RouterConfiguration,
+                             receivedAt: UInt64, clearsPreviousIssue: Bool = false) {
+        // A value snapshot keeps each request tied to the rules in effect when it arrived.
+        let requestID = String(UUID().uuidString.prefix(8))
+        let source = configuration.sourceRoutes.first { $0.sourceBundleIdentifier == sourceBundleIdentifier }?.sourceName
+            ?? sourceBundleIdentifier ?? "Unknown app"
+        routingQueue.async { [weak self] in
+            let planningStarted = DispatchTime.now().uptimeNanoseconds
+            let result = RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration)
+            let planningFinished = DispatchTime.now().uptimeNanoseconds
+            DispatchQueue.main.async {
+                self?.open(result, url: url, receivedAt: receivedAt, planningStarted: planningStarted,
+                    planningFinished: planningFinished, requestID: requestID, source: source, clearsPreviousIssue: clearsPreviousIssue)
+            }
+        }
+    }
+
+    private func open(_ result: RouteDecision, url: URL, receivedAt: UInt64, planningStarted: UInt64,
+                      planningFinished: UInt64, requestID: String, source: String, clearsPreviousIssue: Bool) {
+        if result.kind == .unavailable {
+            reportFailure(result.explanation, url: url, routeID: result.sourceRouteID)
             return
         }
-        routingIssue = nil
-        launcher.open(result.destination) { [weak self] error in
-            if let error { self?.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@",
-                arguments: [result.targetName, error.localizedDescription]), url: url, routeID: nil) }
+        if clearsPreviousIssue { routingIssue = nil }
+        if let warning = result.warnings.first {
+            routingIssue = RoutingIssue(message: warning, url: url, routeID: result.sourceRouteID, needsAttention: false)
+        }
+        let launchStarted = DispatchTime.now().uptimeNanoseconds
+        launcher.open(result.destination, onEvent: { [weak self] event in
+            guard let self else { return }
+            switch event {
+            case .started:
+                let finished = DispatchTime.now().uptimeNanoseconds
+                let timings = String(format: "queue=%.2fms plan=%.2fms dispatch=%.2fms launch=%.2fms total=%.2fms",
+                    Double(planningStarted - receivedAt) / 1_000_000,
+                    Double(planningFinished - planningStarted) / 1_000_000,
+                    Double(launchStarted - planningFinished) / 1_000_000,
+                    Double(finished - launchStarted) / 1_000_000,
+                    Double(finished - receivedAt) / 1_000_000)
+                self.log("\(result.kindName) → \(result.targetName) | request=\(requestID) source=\(source) | \(self.safeURLLabel(url)) | \(timings)")
+            case let .processExited(status, elapsedMilliseconds):
+                let timing = String(format: "process=%.2fms", elapsedMilliseconds)
+                self.log("Profile process returned | request=\(requestID) source=\(source) | \(self.safeURLLabel(url)) | exit=\(status) \(timing)")
+            }
+        }) { [weak self] error in
+            guard let self, let error else { return }
+            self.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@", arguments: [result.targetName, error.localizedDescription]),
+                url: url, routeID: result.sourceRouteID)
         }
     }
 
@@ -313,21 +345,27 @@ final class RouterModel: ObservableObject {
     }
 
     private func log(_ message: String) {
-        let directory = logURL.deletingLastPathComponent()
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        // Bound the diagnostic log; never record URL paths, query strings or fragments.
-        if let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path)[.size]) as? NSNumber,
-           size.intValue > 1_000_000 {
-            let archive = directory.appendingPathComponent("router.previous.log")
-            try? FileManager.default.removeItem(at: archive)
-            try? FileManager.default.moveItem(at: logURL, to: archive)
+        let logURL = logURL
+        let timestamp = Date()
+        logQueue.async {
+            let directory = logURL.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            // Bound the diagnostic log; never record URL paths, query strings or fragments.
+            if let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path)[.size]) as? NSNumber,
+               size.intValue > 1_000_000 {
+                let archive = directory.appendingPathComponent("router.previous.log")
+                try? FileManager.default.removeItem(at: archive)
+                try? FileManager.default.moveItem(at: logURL, to: archive)
+            }
+            let line = "\(ISO8601DateFormatter().string(from: timestamp))  \(message)\n"
+            guard let data = line.data(using: .utf8) else { return }
+            if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
+                defer { try? handle.close() }
+                _ = try? handle.seekToEnd()
+                try? handle.write(contentsOf: data)
+            } else { try? data.write(to: logURL, options: .atomic) }
         }
-        let line = "\(ISO8601DateFormatter().string(from: Date()))  \(message)\n"
-        guard let data = line.data(using: .utf8) else { return }
-        if FileManager.default.fileExists(atPath: logURL.path), let handle = try? FileHandle(forWritingTo: logURL) {
-            defer { try? handle.close() }
-            _ = try? handle.seekToEnd()
-            try? handle.write(contentsOf: data)
-        } else { try? data.write(to: logURL, options: .atomic) }
     }
+
+    func flushDiagnostics() { logQueue.sync {} }
 }

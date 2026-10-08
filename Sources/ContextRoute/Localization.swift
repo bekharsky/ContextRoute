@@ -52,7 +52,7 @@ enum ContextRouteLocalization {
     }
 }
 
-struct LocalizedMessage {
+struct LocalizedMessage: Sendable {
     let key: String
     var arguments: [String] = []
 

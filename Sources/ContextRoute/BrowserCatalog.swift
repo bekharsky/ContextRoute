@@ -145,6 +145,20 @@ enum BrowserCatalog {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
     }
 
+    static func browser(bundleIdentifier: String) -> BrowserInfo? {
+        guard bundleIdentifier != Bundle.main.bundleIdentifier,
+              let appURL = applicationURL(bundleIdentifier: bundleIdentifier),
+              FileManager.default.fileExists(atPath: appURL.path),
+              let bundle = Bundle(url: appURL),
+              let resolvedID = bundle.bundleIdentifier,
+              resolvedID.caseInsensitiveCompare(bundleIdentifier) == .orderedSame else { return nil }
+        let name = bundle.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String
+            ?? bundle.object(forInfoDictionaryKey: "CFBundleName") as? String
+            ?? appURL.deletingPathExtension().lastPathComponent
+        guard isBrowser(name: name, bundleIdentifier: resolvedID) else { return nil }
+        return BrowserInfo(bundleIdentifier: resolvedID, name: name, appURL: appURL)
+    }
+
     static func findApplication(for override: URLAppOverride) -> URL? {
         for bundleID in override.candidateBundleIdentifiers {
             if bundleID != Bundle.main.bundleIdentifier,
@@ -153,6 +167,7 @@ enum BrowserCatalog {
         }
 
         let hints = override.appNameHints.map { $0.lowercased() }.filter { !$0.isEmpty }
+        guard !hints.isEmpty else { return nil }
         return topLevelApplicationURLs().first { url in
             let bundle = Bundle(url: url)
             guard bundle?.bundleIdentifier != Bundle.main.bundleIdentifier else { return false }

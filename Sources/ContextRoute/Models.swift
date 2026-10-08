@@ -19,7 +19,7 @@ struct BrowserInfo: Identifiable, Hashable, Sendable {
     var id: String { bundleIdentifier }
 }
 
-struct SourceRoute: Identifiable, Codable, Hashable {
+struct SourceRoute: Identifiable, Codable, Hashable, Sendable {
     var id: UUID = UUID()
     var sourceBundleIdentifier: String
     var sourceName: String
@@ -63,7 +63,7 @@ struct SourceRoute: Identifiable, Codable, Hashable {
     }
 }
 
-struct URLHostPattern: Codable, Hashable {
+struct URLHostPattern: Codable, Hashable, Sendable {
     var host: String
     var includesSubdomains: Bool = false
     var pathContains: [String] = []
@@ -85,7 +85,7 @@ struct URLHostPattern: Codable, Hashable {
     }
 }
 
-struct URLAppOverride: Identifiable, Codable, Hashable {
+struct URLAppOverride: Identifiable, Codable, Hashable, Sendable {
     var id: String
     var name: String
     var hosts: [String]
@@ -274,7 +274,7 @@ struct URLAppOverride: Identifiable, Codable, Hashable {
     ]
 }
 
-struct RouterConfiguration: Codable {
+struct RouterConfiguration: Codable, Sendable {
     var schemaVersion: Int? = 1
     var sourceRoutes: [SourceRoute] = []
     var urlAppOverrides: [URLAppOverride] = URLAppOverride.defaults
