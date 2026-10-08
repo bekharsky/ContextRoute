@@ -8,12 +8,7 @@ private struct CheckFailure: Error, CustomStringConvertible {
 
 @MainActor
 private final class LaunchRecording {
-    var events: [BrowserLauncher.Event] = []
     var errors: [Error] = []
-
-    var exited: Bool {
-        events.contains { if case .processExited = $0 { return true }; return false }
-    }
 }
 
 @main
@@ -160,43 +155,44 @@ struct RoutingChecks {
         for status in [Int32(0), Int32(7)] {
             let fixture = try makeFixture(in: scratch, status: status, executable: true)
             let recording = LaunchRecording()
-            launcher.open(.profile(browser: fixture.browser, route: route, url: url), onEvent: { recording.events.append($0) }) {
+            launcher.open(.profile(browser: fixture.browser, route: route, url: url)) {
                 if let error = $0 { recording.errors.append(error) }
             }
-            try await waitFor { recording.exited }
-            try require(recording.events.count == 2, "Profile emits started and exited exactly once")
-            if case .started = recording.events[0] { assertions += 1 }
-            else { throw CheckFailure(description: "Profile started event must precede exit") }
-            if case let .processExited(code, _) = recording.events[1] {
-                try require(code == status, "Preserve the child exit status")
+            let expectedArguments = ["--user-data-dir=\(dataDirectory.path)", "--profile-directory=Default", url.absoluteString]
+            try await waitFor {
+                (try? String(contentsOf: fixture.arguments, encoding: .utf8)) == expectedArguments.joined(separator: "\n") + "\n"
+            }
+            if status != 0 {
+                try await waitFor { !recording.errors.isEmpty }
+                try require(recording.errors[0].localizedDescription.contains(String(status)), "Preserve the child exit status")
             }
             try require(recording.errors.count == (status == 0 ? 0 : 1), "Report a nonzero early exit once")
             let arguments = try String(contentsOf: fixture.arguments, encoding: .utf8).split(separator: "\n").map(String.init)
-            try require(arguments == ["--user-data-dir=\(dataDirectory.path)", "--profile-directory=Default", url.absoluteString],
+            try require(arguments == expectedArguments,
                 "Profile launch preserves spaces and the complete URL as separate arguments")
         }
 
         let fixture = try makeFixture(in: scratch, status: 0, executable: false)
         let recording = LaunchRecording()
-        launcher.open(.profile(browser: fixture.browser, route: route, url: url), onEvent: { recording.events.append($0) }) {
+        launcher.open(.profile(browser: fixture.browser, route: route, url: url)) {
             if let error = $0 { recording.errors.append(error) }
         }
         try await waitFor { !recording.errors.isEmpty }
-        try require(recording.events.isEmpty && recording.errors.count == 1, "Spawn failure reports an error without a started event")
+        try require(recording.errors.count == 1, "Spawn failure reports an error once")
 
         let unavailable = LaunchRecording()
-        launcher.open(.unavailable, onEvent: { unavailable.events.append($0) }) {
+        launcher.open(.unavailable) {
             if let error = $0 { unavailable.errors.append(error) }
         }
-        try require(unavailable.events.isEmpty && unavailable.errors.count == 1, "Unavailable destination reports an error")
+        try require(unavailable.errors.count == 1, "Unavailable destination reports an error")
 
         var noProfile = route
         noProfile.profileIdentifier = nil
         let invalidProfile = LaunchRecording()
-        launcher.open(.profile(browser: fixture.browser, route: noProfile, url: url), onEvent: { invalidProfile.events.append($0) }) {
+        launcher.open(.profile(browser: fixture.browser, route: noProfile, url: url)) {
             if let error = $0 { invalidProfile.errors.append(error) }
         }
-        try require(invalidProfile.events.isEmpty && invalidProfile.errors.count == 1, "Invalid profile request never starts a child process")
+        try require(invalidProfile.errors.count == 1, "Invalid profile request reports an error")
     }
 
     private static func waitFor(_ condition: () -> Bool) async throws {
