@@ -58,7 +58,7 @@ jobs:
           echo "ARTIFACT_NAME=$artifact_name" >> "$GITHUB_ENV"
 
       - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ContextRoute-macOS-${{ github.sha }}
           path: ${{ runner.temp }}/${{ env.ARTIFACT_NAME }}
