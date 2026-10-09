@@ -93,7 +93,7 @@ struct RoutingChecks {
             route.profileIdentifier = "Default"
             configuration.sourceRoutes = [route]
             try require(decide().kind == .appRoute, "Available profile stays on its app route")
-            if case let .profile(executableURL, arguments, routedURL) = decide().destination {
+            if case let .profile(_, _, executableURL, arguments, routedURL) = decide().destination {
                 let expectedArguments = BrowserCatalog.profileLaunchArguments(browser: browser,
                     profileIdentifier: "Default", userDataDirectory: route.userDataDirectory)
                 try require(executableURL == BrowserCatalog.executableURL(for: browser.appURL) && arguments == expectedArguments && routedURL == url,
@@ -155,7 +155,8 @@ struct RoutingChecks {
             profileIdentifier: "Default", profileName: nil, userDataDirectory: dataDirectory.path)
 
         func destination(for browser: BrowserInfo, arguments: [String]? = nil) -> RouteDestination {
-            .profile(executableURL: BrowserCatalog.executableURL(for: browser.appURL)!,
+            .profile(appURL: browser.appURL, bundleIdentifier: browser.bundleIdentifier,
+                executableURL: BrowserCatalog.executableURL(for: browser.appURL)!,
                 arguments: arguments ?? BrowserCatalog.profileLaunchArguments(browser: browser,
                     profileIdentifier: route.profileIdentifier!, userDataDirectory: route.userDataDirectory)!, url: url)
         }

@@ -2,12 +2,20 @@ import AppKit
 
 enum RouteDestination: Sendable {
     case application(appURL: URL, url: URL)
-    case profile(executableURL: URL, arguments: [String], url: URL)
+    case profile(appURL: URL, bundleIdentifier: String, executableURL: URL, arguments: [String], url: URL)
     case unavailable
+
+    var diagnosticsName: String {
+        switch self {
+        case .application: "application"
+        case .profile: "profile"
+        case .unavailable: "unavailable"
+        }
+    }
 }
 
 struct RouteDecision: Sendable {
-    enum Kind: Sendable { case handler, appRoute, fallback, unavailable }
+    enum Kind: String, Sendable { case handler, appRoute, fallback, unavailable }
     var kind: Kind
     var destination: RouteDestination
     var targetName: String
@@ -54,12 +62,14 @@ enum RoutePlanner {
 
     fileprivate enum Target: Sendable {
         case application(URL)
-        case profile(executableURL: URL, arguments: [String])
+        case profile(appURL: URL, bundleIdentifier: String, executableURL: URL, arguments: [String])
 
         func destination(for url: URL) -> RouteDestination {
             switch self {
             case let .application(appURL): .application(appURL: appURL, url: url)
-            case let .profile(executableURL, arguments): .profile(executableURL: executableURL, arguments: arguments, url: url)
+            case let .profile(appURL, bundleIdentifier, executableURL, arguments):
+                .profile(appURL: appURL, bundleIdentifier: bundleIdentifier,
+                    executableURL: executableURL, arguments: arguments, url: url)
             }
         }
     }
@@ -160,6 +170,7 @@ enum RoutePlanner {
                 profileIdentifier: profileID, userDataDirectory: route.userDataDirectory) else {
             return .unavailable(LocalizedMessage(key: "The selected profile cannot be opened."))
         }
-        return .available(.profile(executableURL: executableURL, arguments: arguments))
+        return .available(.profile(appURL: appURL, bundleIdentifier: route.browserBundleIdentifier,
+            executableURL: executableURL, arguments: arguments))
     }
 }

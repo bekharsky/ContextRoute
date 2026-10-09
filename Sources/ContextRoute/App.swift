@@ -83,6 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var menuObservers: [NSObjectProtocol] = []
     private var menuCleanupScheduled = false
     private var isTerminating = false
+    private let processStartedAt = DispatchTime.now().uptimeNanoseconds
 
     func showSettingsWindow() {
         RouterModel.shared.refreshDefaultHandlerStatus()
@@ -213,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationWillFinishLaunching(_ notification: Notification) {
+        RoutingDiagnostics.logAppStage("will-finish", startedAt: processStartedAt)
         NSWindow.allowsAutomaticWindowTabbing = false
         editingCommands.startMonitoring()
         for name in [NSMenu.didAddItemNotification, NSMenu.didRemoveItemNotification] {
@@ -242,6 +244,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        RoutingDiagnostics.logAppStage("did-finish-start", startedAt: processStartedAt)
         let showsWindowOnLaunch = isInteractiveLaunch(notification)
         NSApp.setActivationPolicy(.accessory)
         NSApp.appearance = AppearanceChoice.current.nativeAppearance
@@ -254,6 +257,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         }
         _ = model.captureCurrentDefaultBrowserIfPossible()
         model.refreshDefaultHandlerStatus()
+        RoutingDiagnostics.logAppStage("routing-ready", startedAt: processStartedAt)
         guard showsWindowOnLaunch else { return }
 
         let setupKey = "app.contextroute.hasPresentedInitialSetup"
@@ -305,8 +309,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             sourceBundleIdentifier = nil
         }
 
+        let trace = RoutingTrace(processStartedAt: processStartedAt)
+        trace.mark("url-received", details: "source_known=\(sourceBundleIdentifier != nil)")
         Task { @MainActor in
-            RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier)
+            RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier, trace: trace)
         }
     }
 }

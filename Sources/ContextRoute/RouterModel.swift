@@ -219,7 +219,13 @@ final class RouterModel: ObservableObject {
     }
 
     func refreshRoutingCache() {
+        let configuration = configuration
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         routingSnapshot = RoutePlanner.prepare(configuration)
+        RoutingDiagnostics.logCachePreparation(
+            startedAt: startedAt,
+            handlerCount: configuration.urlAppOverrides.filter(\.isEnabled).count,
+            routeCount: configuration.sourceRoutes.count)
         routeIssues = routingSnapshot.routeIssues
     }
 
@@ -267,8 +273,11 @@ final class RouterModel: ObservableObject {
         RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, snapshot: routingSnapshot)
     }
 
-    func route(_ url: URL, sourceBundleIdentifier: String?) {
-        open(decision(for: url, sourceBundleIdentifier: sourceBundleIdentifier), url: url, clearsPreviousIssue: false)
+    func route(_ url: URL, sourceBundleIdentifier: String?, trace: RoutingTrace? = nil) {
+        trace?.mark("route-started", details: "source_known=\(sourceBundleIdentifier != nil)")
+        let result = decision(for: url, sourceBundleIdentifier: sourceBundleIdentifier)
+        trace?.mark("route-decided", details: "kind=\(result.kind.rawValue) destination=\(result.destination.diagnosticsName)")
+        open(result, url: url, clearsPreviousIssue: false, trace: trace)
     }
 
     func retryInFallback(_ url: URL) {
@@ -276,8 +285,9 @@ final class RouterModel: ObservableObject {
         open(result, url: url, clearsPreviousIssue: true)
     }
 
-    private func open(_ result: RouteDecision, url: URL, clearsPreviousIssue: Bool) {
+    private func open(_ result: RouteDecision, url: URL, clearsPreviousIssue: Bool, trace: RoutingTrace? = nil) {
         if result.kind == .unavailable {
+            trace?.mark("route-unavailable")
             reportFailure(result.explanation, url: url, routeID: result.sourceRouteID)
             return
         }
@@ -285,7 +295,7 @@ final class RouterModel: ObservableObject {
         if let warning = result.warnings.first {
             routingIssue = RoutingIssue(message: warning, url: url, routeID: result.sourceRouteID, needsAttention: false)
         }
-        launcher.open(result.destination) { [weak self] error in
+        launcher.open(result.destination, trace: trace) { [weak self] error in
             guard let self, let error else { return }
             self.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@", arguments: [result.targetName, error.localizedDescription]),
                 url: url, routeID: result.sourceRouteID)
