@@ -14,11 +14,9 @@ xcodebuild \
     -sdk macosx \
     -destination 'generic/platform=macOS' \
     -derivedDataPath "$DERIVED_DATA" \
-    CODE_SIGNING_ALLOWED=NO \
     build
 
 rm -rf "$APP_BUNDLE"
 ditto "$DERIVED_DATA/Build/Products/Release/ContextRoute.app" "$APP_BUNDLE"
-codesign --force --deep --sign - "$APP_BUNDLE"
 codesign --verify --deep --strict "$APP_BUNDLE"
 printf 'Built %s\n' "$APP_BUNDLE"

@@ -122,10 +122,13 @@
 		F10000000000000000000001 /* Project Debug */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 27.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Debug; };
 		F10000000000000000000002 /* Project Release */ = {isa = XCBuildConfiguration; buildSettings = {CLANG_ENABLE_MODULES = YES; MACOSX_DEPLOYMENT_TARGET = 27.0; SDKROOT = macosx; SWIFT_VERSION = 5.0; }; name = Release; };
 		F10000000000000000000003 /* Target Debug */ = {isa = XCBuildConfiguration; buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_REQUIRED = YES;
 				COMBINE_HIDPI_IMAGES = YES;
+				DEVELOPMENT_TEAM = DSP3NSS4L8;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
@@ -137,14 +140,19 @@
 				SWIFT_VERSION = 5.0;
 				}; name = Debug; };
 		F10000000000000000000004 /* Target Release */ = {isa = XCBuildConfiguration; buildSettings = {
-				CODE_SIGN_IDENTITY = "-";
-				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO;
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_REQUIRED = YES;
 				COMBINE_HIDPI_IMAGES = YES;
 				DEBUG_INFORMATION_FORMAT = dwarf-with-dsym;
+				DEVELOPMENT_TEAM = DSP3NSS4L8;
 				ENABLE_APP_SANDBOX = NO;
+				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Info.plist;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
 				PRODUCT_BUNDLE_IDENTIFIER = app.contextroute.mac;
 				PRODUCT_NAME = ContextRoute;
 				SDKROOT = macosx;
