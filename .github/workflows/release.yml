@@ -1,0 +1,272 @@
+name: GitHub Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version without v, for example 0.4.14"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Sign, notarize, and publish
+    runs-on: xcode-27
+    permissions:
+      contents: write
+
+    env:
+      REQUESTED_VERSION: ${{ inputs.version }}
+      APPLE_DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+      APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      APPLE_NOTARY_PRIVATE_KEY_BASE64: ${{ secrets.APPLE_NOTARY_PRIVATE_KEY_BASE64 }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Validate release version and secrets
+        id: validate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for required in \
+            APPLE_DEVELOPER_ID_CERTIFICATE_BASE64 \
+            APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD \
+            APPLE_NOTARY_KEY_ID \
+            APPLE_NOTARY_ISSUER_ID \
+            APPLE_NOTARY_PRIVATE_KEY_BASE64
+          do
+            if [[ -z "${!required}" ]]; then
+              echo "::error::Missing GitHub Actions secret: ${required}"
+              exit 1
+            fi
+          done
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+              echo "::error::Start manual releases from main"
+              exit 1
+            fi
+            version="${REQUESTED_VERSION#v}"
+          else
+            if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Release tag must look like v0.4.14; got '$GITHUB_REF_NAME'"
+              exit 1
+            fi
+            version="${GITHUB_REF_NAME#v}"
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version must look like 0.4.14; got '${version:-empty}'"
+            exit 1
+          fi
+
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            tag_refs="$(git ls-remote origin "refs/tags/v$version" "refs/tags/v$version^{}")"
+            if [[ -n "$tag_refs" ]]; then
+              tag_commit="$(printf '%s\n' "$tag_refs" | awk '$2 ~ /\^\{\}$/ { print $1; found = 1; exit } { light = $1 } END { if (!found && light != "") print light }')"
+              if [[ "$tag_commit" != "$GITHUB_SHA" ]]; then
+                echo "::error::Tag v$version already points to another commit; choose a new version"
+                exit 1
+              fi
+            fi
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+          echo "MARKETING_VERSION=$version" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v$version" >> "$GITHUB_ENV"
+
+      - name: Import Developer ID certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          keychain_path="$RUNNER_TEMP/contextroute-build.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          certificate_path="$RUNNER_TEMP/developer-id-application.p12"
+          echo "KEYCHAIN_PATH=$keychain_path" >> "$GITHUB_ENV"
+
+          printf '%s' "$APPLE_DEVELOPER_ID_CERTIFICATE_BASE64" | base64 -D > "$certificate_path"
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" \
+            -k "$keychain_path" \
+            -P "$APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12
+          security set-key-partition-list \
+            -S apple-tool:,apple: \
+            -s \
+            -k "$keychain_password" \
+            "$keychain_path"
+          security list-keychains -d user -s "$keychain_path" login.keychain-db
+          security default-keychain -s "$keychain_path"
+
+          signing_identity="$(security find-identity -v -p codesigning "$keychain_path" \
+            | awk -F '"' '/Developer ID Application:/ { print $2; exit }')"
+          if [[ -z "$signing_identity" ]]; then
+            echo "::error::The imported keychain does not contain a Developer ID Application identity"
+            exit 1
+          fi
+
+          echo "CODE_SIGN_IDENTITY=$signing_identity" >> "$GITHUB_ENV"
+
+      - name: Archive the non-sandboxed Release app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          archive_path="$RUNNER_TEMP/ContextRoute.xcarchive"
+          xcodebuild \
+            -quiet \
+            -project ContextRoute.xcodeproj \
+            -scheme ContextRoute \
+            -configuration Release \
+            -sdk macosx \
+            -archivePath "$archive_path" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=YES \
+            ENABLE_APP_SANDBOX=NO \
+            ENABLE_HARDENED_RUNTIME=YES \
+            OTHER_CODE_SIGN_FLAGS=--timestamp \
+            MARKETING_VERSION="$MARKETING_VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
+            archive
+
+          app_path="$archive_path/Products/Applications/ContextRoute.app"
+          test -d "$app_path"
+          codesign --verify --deep --strict "$app_path"
+
+          short_version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app_path/Contents/Info.plist")"
+          minimum_version="$(/usr/libexec/PlistBuddy -c 'Print :LSMinimumSystemVersion' "$app_path/Contents/Info.plist")"
+          if [[ "$short_version" != "$MARKETING_VERSION" || "$minimum_version" != "27.0" ]]; then
+            echo "::error::Unexpected app metadata: version=$short_version minimum macOS=$minimum_version"
+            exit 1
+          fi
+
+          signature_details="$(codesign --display --verbose=4 "$app_path" 2>&1)"
+          if ! printf '%s\n' "$signature_details" | grep -q 'Authority=Developer ID Application:' \
+            || ! printf '%s\n' "$signature_details" | grep -q 'flags=.*runtime'; then
+            echo "::error::The archive is missing its Developer ID or Hardened Runtime signature"
+            exit 1
+          fi
+
+          echo "APP_PATH=$app_path" >> "$GITHUB_ENV"
+
+      - name: Submit app for notarization
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          notarization_zip="$RUNNER_TEMP/ContextRoute-notarization.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$notarization_zip"
+
+          notary_key_path="$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          printf '%s' "$APPLE_NOTARY_PRIVATE_KEY_BASE64" | base64 -D > "$notary_key_path"
+          submission_json="$(xcrun notarytool submit "$notarization_zip" \
+            --key "$notary_key_path" \
+            --key-id "$APPLE_NOTARY_KEY_ID" \
+            --issuer "$APPLE_NOTARY_ISSUER_ID" \
+            --wait \
+            --output-format json)"
+          printf '%s\n' "$submission_json"
+
+          submission_id="$(printf '%s\n' "$submission_json" | jq -r '.id // empty')"
+          submission_status="$(printf '%s\n' "$submission_json" | jq -r '.status // empty')"
+          if [[ "$submission_status" != "Accepted" ]]; then
+            echo "::error::Apple notarization returned '${submission_status:-unknown}'"
+            if [[ -n "$submission_id" ]]; then
+              xcrun notarytool log "$submission_id" \
+                --key "$notary_key_path" \
+                --key-id "$APPLE_NOTARY_KEY_ID" \
+                --issuer "$APPLE_NOTARY_ISSUER_ID" || true
+            fi
+            exit 1
+          fi
+
+      - name: Staple and package notarized app
+        id: package
+        shell: bash
+        env:
+          VERSION: ${{ steps.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          stapled=false
+          for attempt in 1 2 3 4 5 6; do
+            if xcrun stapler staple "$APP_PATH" && xcrun stapler validate "$APP_PATH"; then
+              stapled=true
+              break
+            fi
+            echo "Stapling is not visible yet; retrying in 10 seconds (attempt $attempt/6)"
+            sleep 10
+          done
+          if [[ "$stapled" != true ]]; then
+            echo "::error::Apple accepted the submission, but the notarization ticket could not be stapled"
+            exit 1
+          fi
+
+          spctl --assess --type execute --verbose=4 "$APP_PATH"
+          versioned_zip="$RUNNER_TEMP/ContextRoute-${VERSION}-macOS.zip"
+          stable_zip="$RUNNER_TEMP/ContextRoute-macOS.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$versioned_zip"
+          cp "$versioned_zip" "$stable_zip"
+          echo "versioned_zip=$versioned_zip" >> "$GITHUB_OUTPUT"
+          echo "stable_zip=$stable_zip" >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.validate.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.validate.outputs.version }}
+          VERSIONED_ZIP: ${{ steps.package.outputs.versioned_zip }}
+          STABLE_ZIP: ${{ steps.package.outputs.stable_zip }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" \
+              "$VERSIONED_ZIP" \
+              "$STABLE_ZIP" \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$RELEASE_TAG" \
+              "$VERSIONED_ZIP" \
+              "$STABLE_ZIP" \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --title "ContextRoute $RELEASE_VERSION" \
+              --generate-notes
+          fi
+
+      - name: Remove temporary signing material
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          if [[ -n "${KEYCHAIN_PATH:-}" && -e "$KEYCHAIN_PATH" ]]; then
+            security delete-keychain "$KEYCHAIN_PATH" || true
+          fi
+          rm -f "$RUNNER_TEMP/developer-id-application.p12"
+          if [[ -n "${APPLE_NOTARY_KEY_ID:-}" ]]; then
+            rm -f "$RUNNER_TEMP/AuthKey_${APPLE_NOTARY_KEY_ID}.p8"
+          fi

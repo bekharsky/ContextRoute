@@ -1,0 +1,66 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build macOS app
+    runs-on: xcode-27
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Show toolchain
+        run: |
+          sw_vers
+          xcodebuild -version
+
+      - name: Build unsigned Release app
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          build_root="$RUNNER_TEMP/contextroute-build"
+          derived_data_path="$build_root/derived-data"
+          app_path="$derived_data_path/Build/Products/Release/ContextRoute.app"
+          artifact_name="ContextRoute-${GITHUB_SHA::7}-macOS.zip"
+
+          xcodebuild \
+            -quiet \
+            -project ContextRoute.xcodeproj \
+            -scheme ContextRoute \
+            -configuration Release \
+            -sdk macosx \
+            -derivedDataPath "$derived_data_path" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            ENABLE_APP_SANDBOX=NO \
+            build
+
+          test -d "$app_path"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$app_path" \
+            "$RUNNER_TEMP/$artifact_name"
+
+          echo "ARTIFACT_NAME=$artifact_name" >> "$GITHUB_ENV"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ContextRoute-macOS-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ env.ARTIFACT_NAME }}
+          if-no-files-found: error
+          retention-days: 14

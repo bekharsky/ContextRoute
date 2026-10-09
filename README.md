@@ -1,75 +1,85 @@
 # ContextRoute
 
-Небольшая утилита для macOS: правило **«приложение-источник → браузер и профиль»**.
+A small macOS utility for routing links from **source apps to browsers and profiles**.
 
-## Как работает
+## How it works
 
-- Сначала проверяются включённые обработчики из **Open in apps**. Подходящие ссылки открываются прямо в установленном приложении. Если оно не установлено, применяется обычное правило приложения-источника.
-- Если ссылка пришла из приложения с включённым правилом, ContextRoute открывает её в выбранном браузере и профиле.
-- Если доступного правила нет, ссылка идёт в выбранный резервный браузер. При первоначальной настройке используется текущий браузер macOS; выбранный вручную браузер сохраняется при перезапуске.
-- Раздел **Open in apps** содержит встроенные переадресации из каталога Yojam: Zoom, Telegram, Slack, Discord, Spotify, Apple Music, FaceTime, Карты, Microsoft Teams, Figma, Linear, Notion, WhatsApp, Signal, App Store, TestFlight и Podcasts. Discord-ссылки преобразуются в `discord://`.
-- В боковой панели три раздела: **App routes**, **Open in apps** и **Settings**. В Settings собраны резервный браузер, тема, язык, автозапуск и импорт/экспорт. Интерфейс по умолчанию английский; доступны русский и системный язык, а также системная, светлая и тёмная темы.
-- Поиск в сайдбаре находит конкретные настройки, правила и домены обработчиков. Выбор результата открывает нужный раздел и прокручивает его до найденного элемента.
-- Для браузеров без поддержки выбора профиля ссылка открывается в их обычном профиле.
-- При запуске в памяти подготавливается кеш правил, путей приложений, доступности выбранных профилей и аргументов их запуска. Обработка ссылки использует этот кеш, без чтения настроек и папок профилей или поиска приложений. Процесс выбранного профиля запускается в фоновой очереди.
+- ContextRoute first checks enabled handlers in **Open in apps**. Matching links open directly in the installed app. If that app is not installed, ContextRoute uses the regular source-app rule.
+- If a link comes from an app with an enabled rule, ContextRoute opens it in the selected browser and profile.
+- If no matching rule is available, the link opens in the selected fallback browser. During initial setup, ContextRoute uses the current macOS default browser. A browser selected manually stays selected after relaunch.
+- **Open in apps** includes built-in redirects from the Yojam catalog: Zoom, Telegram, Slack, Discord, Spotify, Apple Music, FaceTime, Maps, Microsoft Teams, Figma, Linear, Notion, WhatsApp, Signal, App Store, TestFlight, and Podcasts. Discord links are converted to `discord://` URLs.
+- The sidebar has three sections: **App routes**, **Open in apps**, and **Settings**. Settings contains the fallback browser, theme, language, launch-at-login option, and import/export. The interface defaults to English; Russian and the system language are also available, along with system, light, and dark themes.
+- Sidebar search finds individual settings, rules, and handler domains. Selecting a result opens the relevant section and scrolls to the matching item.
+- In browsers that do not support profile selection, links open in the browser's regular profile.
+- At launch, ContextRoute caches routing rules, app paths, selected-profile availability, and profile launch arguments. Link handling uses that cache instead of rereading settings, profile folders, or searching for apps. Profile launches run in a background queue.
 
-Папки профилей автоматически определяются для браузеров из каталога Yojam: Chrome Stable/Beta/Canary, Brave Stable/Beta/Dev, Edge Stable/Beta, Vivaldi, Wavebox, Helium, Comet, Яндекс Браузер, Opera/Opera GX, Chromium, Firefox/Developer Edition/Nightly и Zen. Профили Chromium читаются из `Local State`, Firefox — из `profiles.ini`. Для браузеров без совместимого списка профилей можно выбрать сам браузер; ContextRoute откроет его обычным способом.
+Profile folders are detected automatically for browsers in the Yojam catalog: Chrome Stable/Beta/Canary, Brave Stable/Beta/Dev, Edge Stable/Beta, Vivaldi, Wavebox, Helium, Comet, Yandex Browser, Opera/Opera GX, Chromium, Firefox/Developer Edition/Nightly, and Zen. Chromium profiles are read from `Local State`; Firefox profiles are read from `profiles.ini`. For browsers without a compatible profile list, you can select the browser itself and ContextRoute will open it normally.
 
-## Установка
+## Installation
 
-1. Перемести `ContextRoute.app` в `/Applications` и открой его. Если macOS покажет предупреждение, нажми правой кнопкой на приложение в Finder и выбери «Открыть».
-2. При первом запуске открывается **App routes** с кнопкой **Make default browser**. Резервный браузер автоматически определяется по текущему браузеру macOS; если это не удалось, откроется **Settings**, где его можно выбрать вручную.
-3. В разделе **App routes** добавь правило, выбери приложение-источник, браузер и профиль. Диалог выбора приложения сразу открывается в `/Applications`; диалог папки профилей начинает с автоматически найденной папки браузера.
-4. Профили загружаются автоматически; индикатор и кнопка обновления находятся справа от выбора профиля. Путь к папке профилей и её настройки находятся сразу под списком профилей. Если браузер использует другой каталог данных, нажми **Profile folder…** и укажи папку с `Local State` (Chromium) или `profiles.ini` (Firefox), а не отдельную папку профиля. **Use default folder** возвращает стандартный каталог браузера. При ошибке чтения выбор папки доступен сразу; повторить загрузку можно кнопкой справа от профиля. Содержимое формы прокручивается, а заголовок и кнопки сохранения остаются на месте.
-5. Нажми **Make default browser** и подтверди выбор в macOS, если система спросит. Пока ContextRoute не назначен для http и https, кнопка доступна вверху страниц настроек, а пункт **Make default browser…** — в меню приложения.
-6. При обычном запуске приложения открывается окно настроек. Автозапуск при входе и запуск для обработки ссылки работают в меню-строке, без открытия окна. Включи **Settings → Launch at login**, если нужен автозапуск при входе в систему. Если macOS потребует разрешение, кнопка **Open Login Items** откроет системную настройку. Для перехвата ссылок macOS сама запустит назначенный обработчик, если он ещё не запущен.
+1. Move `ContextRoute.app` to `/Applications` and open it. If macOS shows a warning, right-click the app in Finder and choose **Open**.
+2. On first launch, **App routes** opens with a **Make default browser** button. The fallback browser is detected from the current macOS default browser; if detection fails, **Settings** opens so you can choose one manually.
+3. In **App routes**, add a rule and choose the source app, browser, and profile. The app picker opens in `/Applications`; the profile-folder picker starts in the browser's automatically detected folder.
+4. Profiles load automatically. The progress indicator and refresh button are to the right of the profile selector. The profile-folder path and its controls are directly below the profile list. If the browser uses a different data directory, click **Profile folder…** and choose the folder containing `Local State` (Chromium) or `profiles.ini` (Firefox), not an individual profile folder. **Use default folder** restores the browser's standard data directory. If loading fails, you can choose a folder right away and retry with the button beside the profile selector. The form content scrolls while its header and save buttons stay in place.
+5. Click **Make default browser** and confirm the choice in macOS if prompted. Until ContextRoute is assigned to handle `http` and `https`, the button stays at the top of settings pages and **Make default browser…** remains in the app menu.
+6. Opening the app normally shows the settings window. Launch-at-login and link handling run from the menu bar without opening a window. Turn on **Settings → Launch at login** to launch ContextRoute at sign-in. If macOS requires permission, **Open Login Items** opens the relevant system setting. macOS launches the assigned handler when a link needs processing, even if ContextRoute is not already running.
 
-В меню приложения и меню-строке пункт **Settings…** открывает окно правил и настроек; в меню-строке также доступны **About ContextRoute** и **Quit ContextRoute**. **About ContextRoute** открывает системное окно с версией приложения и автором Sergey Bekharskiy.
+The app menu and menu-bar menu contain **Settings…** to open rules and settings. The menu-bar menu also has **About ContextRoute** and **Quit ContextRoute**. **About ContextRoute** opens the system window with the app version and author Sergey Bekharskiy.
 
-Пока открыто окно настроек или About, доступны меню приложения, **File** и **Window**, а также значок в Dock. Меню **Edit** и **View** убраны; вкладки окон отключены. `⌘W` закрывает окно; `⌘Q` завершает приложение. `⌘X`, `⌘C`, `⌘V` и `⌘A` продолжают работать в текстовых полях. После закрытия последнего окна ContextRoute возвращается в меню-строку и продолжает обрабатывать ссылки.
+While the settings or About window is open, the app menu, **File**, and **Window** menus are available, as is the Dock icon. The **Edit** and **View** menus are removed, and window tabs are disabled. `⌘W` closes the window; `⌘Q` quits the app. `⌘X`, `⌘C`, `⌘V`, and `⌘A` still work in text fields. After the last window closes, ContextRoute returns to the menu bar and continues handling links.
 
-Выбор профиля опционален. Если оставить **Use browser default**, ссылка откроется в браузере-назначении обычным способом.
+Selecting a profile is optional. If you leave **Use browser default** selected, the link opens in the destination browser as usual.
 
-## Управление правилами
+## Managing rules
 
-- Переключатель в строке правила позволяет временно отключить его, сохранив браузер и профиль.
-- Удаление, редактирование, замена правила, изменение обработчика и резервного браузера, а также импорт можно отменить через `⌘Z`; повторить — через `⇧⌘Z`. После изменения правила кнопка **Undo** доступна и на странице App routes. В текстовых полях эти сочетания отменяют и повторяют редактирование текста. История правил действует до завершения приложения или повторного чтения настроек.
-- При выборе приложения, для которого уже есть другое правило, редактор явно предупреждает о замене и запрашивает подтверждение.
-- **Check route…** принимает ссылку и приложение-источник и объясняет результат выбора. Проверка использует ту же логику, что и открытие ссылок, и сама ссылку не открывает.
-- Кеш маршрутов обновляется после сохранения, импорта, отмены и повторения изменений настроек. Если браузер или профиль установлен, удалён или перемещён во время работы ContextRoute, обнови данные кнопкой **Refresh** в тулбаре. Получение приложением фокуса не пересканирует браузеры и профили.
-- Недоступный браузер или профиль отмечается в списке правил. Если такой маршрут не удаётся использовать, применяется резервный браузер с видимым предупреждением. Ошибки запуска показываются в настройках; можно скопировать ссылку или повторить открытие в резервном браузере.
-- **Settings → Import and export** переносит правила, состояния обработчиков и резервный браузер в JSON-файле. Импорт заменяет эти настройки после подтверждения; тема, язык и автозапуск остаются локальными для компьютера.
+- The switch on a rule temporarily disables it while keeping its browser and profile settings.
+- You can undo deleting, editing, or replacing a rule; changing a handler or fallback browser; and importing settings with `⌘Z`. Redo with `⇧⌘Z`. After a rule change, **Undo** is also available on the App routes page. In text fields, these shortcuts undo and redo text edits. Rule history lasts until the app quits or settings are reloaded.
+- If you select an app that already has a rule, the editor clearly warns that the existing rule will be replaced and asks you to confirm.
+- **Check route…** accepts a link and source app, then explains the routing result. It uses the same logic as link handling and does not open the link.
+- The routing cache updates when settings are saved, imported, undone, or redone. If a browser or profile is installed, removed, or moved while ContextRoute is running, refresh it with the toolbar's **Refresh** button. Bringing the app to the foreground does not rescan browsers or profiles.
+- An unavailable browser or profile is marked in the rules list. If the route cannot be used, ContextRoute uses the fallback browser and shows a warning. Launch errors appear in settings; you can copy the link or try opening it in the fallback browser.
+- **Settings → Import and export** transfers rules, handler states, and the fallback browser in a JSON file. Import replaces those settings after confirmation; theme, language, and launch-at-login stay local to the computer.
 
-## Сохранение и восстановление
+## Saving and recovery
 
-Настройки сохраняются атомарно. Предыдущая исправная версия остаётся в `config.backup.json` рядом с основным файлом. При ошибке записи изменение не применяется, а редактор остаётся открытым.
+Settings are saved atomically. The previous working version is kept as `config.backup.json` alongside the main file. If saving fails, the change is not applied and the editor stays open.
 
-Если основной файл повреждён, приложение предлагает восстановить резервную копию. Без исправной копии можно повторить чтение или импортировать настройки. Повреждённый файл сохраняется отдельно перед подтверждённым восстановлением или импортом.
+If the main file is damaged, the app offers to restore the backup. If there is no valid backup, you can retry reading the file or import settings. Before a confirmed restore or import, the damaged file is saved separately.
 
-## Сборка из исходников
+## Building from source
 
-Нужен Xcode 27. Открой `ContextRoute.xcodeproj` или собери приложение командой:
+Xcode 27 is required. Open `ContextRoute.xcodeproj` or build the app with:
 
 ```sh
 ./Scripts/build-app.sh
 ```
 
-Xcode-проект таргетирован на macOS 27, поэтому системные элементы интерфейса используют актуальное оформление Liquid Glass. Скрипт собирает Release-приложение с подписью Developer ID, Hardened Runtime и защищённой временной меткой, затем копирует его в `ContextRoute.app` и проверяет подпись. Архив не создаётся.
+The Xcode project targets macOS 27, so system interface elements use the current Liquid Glass appearance. The script builds a Release app, signs it with the locally installed **Developer ID Application** certificate using Hardened Runtime, and copies it to `ContextRoute.app`. The project is configured for Sergey Bekharskiy's Apple team (`DSP3NSS4L8`); use your own team and signing identity when building under another account.
 
-Проект настроен на команду Sergey Bekharskiy (`DSP3NSS4L8`). Для Release нужен сертификат `Developer ID Application` с закрытым ключом в связке ключей; для Debug — `Apple Development`. При сборке под своим аккаунтом выбери свою команду в Signing & Capabilities. Скрипт сохраняет подпись Xcode и не заменяет её на ad hoc.
+GitHub Actions builds an unsigned artifact for pushes to `main`, pull requests, and manual runs. Pushing a `vMAJOR.MINOR.PATCH` tag starts the signed release workflow: it notarizes and staples the app, then publishes versioned and stable ZIP downloads. The same workflow can be started manually from `main` with a version number.
 
-Проверки маршрутизации и запуска профиля:
+For signed GitHub releases, add these repository Actions secrets:
+
+- `APPLE_DEVELOPER_ID_CERTIFICATE_BASE64` — base64-encoded Developer ID Application `.p12` certificate.
+- `APPLE_DEVELOPER_ID_CERTIFICATE_PASSWORD` — password used when exporting that `.p12` file.
+- `APPLE_NOTARY_KEY_ID` — App Store Connect **Team API Key** ID. Individual API keys cannot authenticate with `notarytool`.
+- `APPLE_NOTARY_ISSUER_ID` — App Store Connect API issuer ID.
+- `APPLE_NOTARY_PRIVATE_KEY_BASE64` — base64-encoded `.p8` private key for the API key.
+
+Set these in the repository's **Settings → Secrets and variables → Actions**. Do not put certificate or private-key contents in the repository.
+
+Routing and profile-launch checks:
 
 ```sh
 ./Scripts/check-routing.sh
 ```
 
-Скрипт проверяет приоритеты правил, недоступные браузеры и профили, передачу аргументов и ошибки запуска. Для проверки доступности нужен установленный Chrome или Safari; процессы запуска проверяются временными приложениями, без открытия ссылок в настоящем браузере и изменения настроек пользователя.
+The script checks rule priorities, unavailable browsers and profiles, argument passing, and launch errors. Chrome or Safari must be installed to check browser availability. Launch processes are checked with temporary apps, without opening links in a real browser or changing user settings.
 
-## Данные и ограничения
+## Data and limitations
 
-- Настройки хранятся в `~/Library/Application Support/ContextRoute/config.json`.
-- Для списка профилей приложение читает `Local State` или `profiles.ini` из папки данных браузера. macOS может отдельно запросить доступ к данным браузера; если отказать, список не загрузится. ContextRoute читает метаданные и не изменяет их. Ошибки чтения отображаются в редакторе.
-- Запуск браузера и проверка наличия профиля не подтверждают загрузку страницы: браузеры не предоставляют общего API для подтверждения доставки ссылки. ContextRoute показывает ошибки системного открытия и ненулевое завершение процесса в первые 10 секунд запуска.
-- Источник определяется по приложению, которое macOS передало вместе со ссылкой. Если ссылка была скопирована/передана через посредника, macOS может сообщить ContextRoute приложение-посредник.
-- Release-сборка подписана Developer ID, но не нотарифицирована Apple. Перед распространением другим людям её нужно нотарифицировать.
+- Settings are stored in `~/Library/Application Support/ContextRoute/config.json`.
+- To list profiles, the app reads `Local State` or `profiles.ini` from the browser's data folder. macOS may separately ask for access to browser data; if access is denied, the profile list will not load. ContextRoute reads metadata and does not modify it. Read errors appear in the editor.
+- Launching a browser and checking that a profile exists do not confirm that a page loaded: browsers provide no common API for confirming link delivery. ContextRoute reports system-open errors and nonzero process exits during the first 10 seconds after launch.
+- The source app is determined from the app macOS reports with the link. If a link was copied or relayed through another app, macOS may report that intermediary as the source.
+- A local build is Developer ID signed but is not notarized. GitHub release builds are notarized and stapled by the release workflow.
