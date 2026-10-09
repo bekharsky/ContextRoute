@@ -275,7 +275,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        RouterModel.shared.refreshDefaultHandlerStatus()
         scheduleMenuCleanup()
     }
 

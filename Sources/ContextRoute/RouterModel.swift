@@ -32,7 +32,7 @@ final class RouterModel: ObservableObject {
 
     private let store = ConfigurationStore()
     private let launcher = BrowserLauncher()
-    private let routingQueue = DispatchQueue(label: "ContextRoute.routePlanning", qos: .userInitiated)
+    private var routingSnapshot = RoutePlanner.Snapshot()
     private struct HistoryEntry {
         let configuration: RouterConfiguration
         let actionName: String
@@ -63,6 +63,7 @@ final class RouterModel: ObservableObject {
         } catch {
             recovery = .unreadable
             storageError = LocalizedMessage(key: "Couldn't read settings: %@. The original file has been kept.", arguments: [error.localizedDescription])
+            refreshRoutingCache()
         }
         undoHistory.removeAll()
         redoHistory.removeAll()
@@ -169,7 +170,7 @@ final class RouterModel: ObservableObject {
         urlAppOverrides = Self.mergeBuiltInOverrides(config.urlAppOverrides)
         fallbackBrowserBundleIdentifier = config.fallbackBrowserBundleIdentifier
         fallbackBrowserName = config.fallbackBrowserName
-        refreshRouteAvailability()
+        refreshRoutingCache()
     }
 
     private func commit(_ updated: RouterConfiguration, actionName: String?, allowRecovery: Bool = false) -> Bool {
@@ -217,10 +218,9 @@ final class RouterModel: ObservableObject {
         updateUndoAvailability()
     }
 
-    func refreshRouteAvailability() {
-        routeIssues = Dictionary(uniqueKeysWithValues: sourceRoutes.compactMap { route in
-            RoutePlanner.issue(for: route).map { (route.id, $0) }
-        })
+    func refreshRoutingCache() {
+        routingSnapshot = RoutePlanner.prepare(configuration)
+        routeIssues = routingSnapshot.routeIssues
     }
 
     func registerAsDefaultHandler() {
@@ -264,29 +264,16 @@ final class RouterModel: ObservableObject {
     }
 
     func decision(for url: URL, sourceBundleIdentifier: String?) -> RouteDecision {
-        RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration)
+        RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, snapshot: routingSnapshot)
     }
 
     func route(_ url: URL, sourceBundleIdentifier: String?) {
-        planAndOpen(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration)
+        open(decision(for: url, sourceBundleIdentifier: sourceBundleIdentifier), url: url, clearsPreviousIssue: false)
     }
 
     func retryInFallback(_ url: URL) {
-        var fallbackOnly = configuration
-        fallbackOnly.sourceRoutes = []
-        fallbackOnly.urlAppOverrides = []
-        planAndOpen(url, sourceBundleIdentifier: nil, configuration: fallbackOnly, clearsPreviousIssue: true)
-    }
-
-    private func planAndOpen(_ url: URL, sourceBundleIdentifier: String?, configuration: RouterConfiguration,
-                             clearsPreviousIssue: Bool = false) {
-        // A value snapshot keeps each request tied to the rules in effect when it arrived.
-        routingQueue.async { [weak self] in
-            let result = RoutePlanner.decide(url, sourceBundleIdentifier: sourceBundleIdentifier, configuration: configuration)
-            DispatchQueue.main.async {
-                self?.open(result, url: url, clearsPreviousIssue: clearsPreviousIssue)
-            }
-        }
+        let result = RoutePlanner.decide(url, sourceBundleIdentifier: nil, snapshot: routingSnapshot.fallbackOnly)
+        open(result, url: url, clearsPreviousIssue: true)
     }
 
     private func open(_ result: RouteDecision, url: URL, clearsPreviousIssue: Bool) {

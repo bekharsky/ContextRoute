@@ -49,7 +49,7 @@ struct RoutingChecks {
         var configuration = RouterConfiguration(urlAppOverrides: [],
             fallbackBrowserBundleIdentifier: browser.bundleIdentifier, fallbackBrowserName: browser.name)
         func decide(_ value: URL = url, sourceID: String? = source) -> RouteDecision {
-            RoutePlanner.decide(value, sourceBundleIdentifier: sourceID, configuration: configuration)
+            RoutePlanner.decide(value, sourceBundleIdentifier: sourceID, snapshot: RoutePlanner.prepare(configuration))
         }
 
         try require(decide(URL(string: "ftp://example.com")!).kind == .unavailable, "Reject non-web schemes")
@@ -93,8 +93,10 @@ struct RoutingChecks {
             route.profileIdentifier = "Default"
             configuration.sourceRoutes = [route]
             try require(decide().kind == .appRoute, "Available profile stays on its app route")
-            if case let .profile(selectedBrowser, selectedRoute, routedURL) = decide().destination {
-                try require(selectedBrowser.appURL == browser.appURL && selectedRoute.profileIdentifier == "Default" && routedURL == url,
+            if case let .profile(executableURL, arguments, routedURL) = decide().destination {
+                let expectedArguments = BrowserCatalog.profileLaunchArguments(browser: browser,
+                    profileIdentifier: "Default", userDataDirectory: route.userDataDirectory)
+                try require(executableURL == BrowserCatalog.executableURL(for: browser.appURL) && arguments == expectedArguments && routedURL == url,
                     "Preserve the selected profile and complete URL")
             } else { throw CheckFailure(description: "Expected profile destination") }
             route.profileIdentifier = "missing-profile"
@@ -152,10 +154,16 @@ struct RoutingChecks {
             browserBundleIdentifier: "com.google.Chrome", browserName: "Test Chromium",
             profileIdentifier: "Default", profileName: nil, userDataDirectory: dataDirectory.path)
 
+        func destination(for browser: BrowserInfo, arguments: [String]? = nil) -> RouteDestination {
+            .profile(executableURL: BrowserCatalog.executableURL(for: browser.appURL)!,
+                arguments: arguments ?? BrowserCatalog.profileLaunchArguments(browser: browser,
+                    profileIdentifier: route.profileIdentifier!, userDataDirectory: route.userDataDirectory)!, url: url)
+        }
+
         for status in [Int32(0), Int32(7)] {
             let fixture = try makeFixture(in: scratch, status: status, executable: true)
             let recording = LaunchRecording()
-            launcher.open(.profile(browser: fixture.browser, route: route, url: url)) {
+            launcher.open(destination(for: fixture.browser)) {
                 if let error = $0 { recording.errors.append(error) }
             }
             let expectedArguments = ["--user-data-dir=\(dataDirectory.path)", "--profile-directory=Default", url.absoluteString]
@@ -174,7 +182,7 @@ struct RoutingChecks {
 
         let fixture = try makeFixture(in: scratch, status: 0, executable: false)
         let recording = LaunchRecording()
-        launcher.open(.profile(browser: fixture.browser, route: route, url: url)) {
+        launcher.open(destination(for: fixture.browser)) {
             if let error = $0 { recording.errors.append(error) }
         }
         try await waitFor { !recording.errors.isEmpty }
@@ -186,10 +194,8 @@ struct RoutingChecks {
         }
         try require(unavailable.errors.count == 1, "Unavailable destination reports an error")
 
-        var noProfile = route
-        noProfile.profileIdentifier = nil
         let invalidProfile = LaunchRecording()
-        launcher.open(.profile(browser: fixture.browser, route: noProfile, url: url)) {
+        launcher.open(destination(for: fixture.browser, arguments: [])) {
             if let error = $0 { invalidProfile.errors.append(error) }
         }
         try require(invalidProfile.errors.count == 1, "Invalid profile request reports an error")

@@ -65,7 +65,7 @@ struct SettingsView: View {
         .preferredColorScheme(appearanceChoice.colorScheme)
         .environment(\.locale, interfaceLanguage.locale)
         .focusEffectDisabled(!focusVisibility.usesKeyboard)
-        .onAppear { model.refreshDefaultHandlerStatus(); refreshBrowsers() }
+        .onAppear { model.refreshDefaultHandlerStatus() }
         .onChange(of: appearance) { _, _ in NSApp.appearance = appearanceChoice.nativeAppearance }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showLinkSetupNotification)) { _ in
             searchText = ""
@@ -75,7 +75,6 @@ struct SettingsView: View {
             searchText = ""
             selectSection(model.routingIssue?.routeID == nil ? .settings : .routes)
         }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refreshBrowsers() }
     }
 
     private var sidebar: some View {
@@ -301,7 +300,8 @@ struct SettingsView: View {
     private func refreshBrowsers() {
         let installedBrowsers = BrowserCatalog.installedBrowsers()
         if browsers != installedBrowsers { browsers = installedBrowsers }
-        model.refreshRouteAvailability()
+        model.refreshDefaultHandlerStatus()
+        model.refreshRoutingCache()
     }
 
     private func selectSection(_ section: SettingsSection) {

@@ -14,17 +14,16 @@ final class BrowserLauncher {
             NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: configuration) { _, error in
                 DispatchQueue.main.async { completion(error) }
             }
-        case let .profile(browser, route, url):
-            guard let profileID = route.profileIdentifier,
-                  var arguments = BrowserCatalog.profileLaunchArguments(browser: browser, profileIdentifier: profileID, userDataDirectory: route.userDataDirectory),
-                  let executable = BrowserCatalog.executableURL(for: browser.appURL) else {
+        case let .profile(executableURL, profileArguments, url):
+            guard !profileArguments.isEmpty else {
                 completion(LaunchError(key: "The selected profile cannot be opened."))
                 return
             }
+            var arguments = profileArguments
             arguments.append(url.absoluteString)
             let process = Process()
             let id = UUID()
-            process.executableURL = executable
+            process.executableURL = executableURL
             process.arguments = arguments
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
