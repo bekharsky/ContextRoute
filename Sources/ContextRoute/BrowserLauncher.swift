@@ -59,11 +59,13 @@ final class BrowserLauncher {
             trace?.mark("launch-requested", details: "mode=process destination=profile browser_running=\(browserIsRunning)")
             // Launching a profile can wait on executable validation or process creation.
             // Keep those waits off the event loop, and preserve the order of profile launches.
-            let queuedAt = DispatchTime.now().uptimeNanoseconds
+            let queuedAt = trace.map { _ in DispatchTime.now().uptimeNanoseconds }
             launchQueue.async { [weak self] in
                 let started = DispatchTime.now().uptimeNanoseconds
-                let queueWait = (started - queuedAt) / 1_000_000
-                trace?.mark("profile-process-queue-start", details: "queue_wait_ms=\(queueWait)")
+                let queueWait = queuedAt.map { (started - $0) / 1_000_000 }
+                if let queueWait {
+                    trace?.mark("profile-process-queue-start", details: "queue_wait_ms=\(queueWait)")
+                }
                 process.terminationHandler = { [weak self] finished in
                     let status = finished.terminationStatus
                     let failedEarly = status != 0 && DispatchTime.now().uptimeNanoseconds - started < 10_000_000_000
@@ -76,8 +78,8 @@ final class BrowserLauncher {
                 }
                 do {
                     try process.run()
-                    let runDuration = (DispatchTime.now().uptimeNanoseconds - started) / 1_000_000
-                    trace?.mark("profile-process-run-return", details: "run_ms=\(runDuration)")
+                    trace?.mark("profile-process-run-return",
+                        details: "run_ms=\((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)")
                     DispatchQueue.main.async {
                         if let browser = NSRunningApplication.runningApplications(
                             withBundleIdentifier: bundleIdentifier).first {
@@ -86,7 +88,9 @@ final class BrowserLauncher {
                         }
                     }
                 } catch {
-                    trace?.mark("profile-process-run-failed", details: "queue_wait_ms=\(queueWait)")
+                    if let queueWait {
+                        trace?.mark("profile-process-run-failed", details: "queue_wait_ms=\(queueWait)")
+                    }
                     DispatchQueue.main.async {
                         self?.processes[id] = nil
                         completion(error)

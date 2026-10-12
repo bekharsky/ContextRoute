@@ -2,11 +2,14 @@ import Foundation
 import OSLog
 
 struct RoutingTrace: Sendable {
-    let id = UUID()
-    private let receivedAt = DispatchTime.now().uptimeNanoseconds
+    let id: UUID
+    private let receivedAt: UInt64
     private let processStartedAt: UInt64
 
-    init(processStartedAt: UInt64) {
+    init?(processStartedAt: UInt64?) {
+        guard RoutingDiagnostics.isEnabled, let processStartedAt else { return nil }
+        id = UUID()
+        receivedAt = DispatchTime.now().uptimeNanoseconds
         self.processStartedAt = processStartedAt
     }
 
@@ -24,20 +27,25 @@ struct RoutingTrace: Sendable {
 }
 
 enum RoutingDiagnostics {
+    static let isEnabled = ProcessInfo.processInfo.arguments.contains("--debug-routing")
+
     private static let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "ContextRoute",
         category: "Routing")
 
     static func write(_ message: String) {
+        guard isEnabled else { return }
         logger.info("\(message, privacy: .public)")
     }
 
     static func logCachePreparation(startedAt: UInt64, handlerCount: Int, routeCount: Int) {
+        guard isEnabled else { return }
         let elapsed = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
         write("routing-cache-prepared elapsed_ms=\(elapsed) handler_count=\(handlerCount) route_count=\(routeCount)")
     }
 
-    static func logAppStage(_ stage: String, startedAt: UInt64) {
+    static func logAppStage(_ stage: String, startedAt: UInt64?) {
+        guard isEnabled, let startedAt else { return }
         let elapsed = (DispatchTime.now().uptimeNanoseconds - startedAt) / 1_000_000
         write("app-launch stage=\(stage) app_age_ms=\(elapsed)")
     }

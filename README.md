@@ -7,6 +7,7 @@ A small macOS utility for routing links from **source apps to browsers and profi
 - ContextRoute first checks enabled handlers in **Open in apps**. Matching links open directly in the installed app. If that app is not installed, ContextRoute uses the regular source-app rule.
 - If a link comes from an app with an enabled rule, ContextRoute opens it in the selected browser and profile.
 - If no matching rule is available, the link opens in the selected fallback browser. During initial setup, ContextRoute uses the current macOS default browser. A browser selected manually stays selected after relaunch.
+- As the default browser, ContextRoute also receives webpage Handoff from iPhone and iPad. These links use **Open in apps** and then the fallback browser, because Handoff does not provide a local source-app process for app-route matching.
 - **Open in apps** includes built-in redirects from the Yojam catalog: Zoom, Telegram, Slack, Discord, Spotify, Apple Music, FaceTime, Maps, Microsoft Teams, Figma, Linear, Notion, WhatsApp, Signal, App Store, TestFlight, and Podcasts. Discord links are converted to `discord://` URLs.
 - The sidebar has three sections: **App routes**, **Open in apps**, and **Settings**. Settings contains the fallback browser, theme, language, launch-at-login option, and import/export. The interface defaults to English; Russian and the system language are also available, along with system, light, and dark themes.
 - Sidebar search finds individual settings, rules, and handler domains. Selecting a result opens the relevant section and scrolls to the matching item.
@@ -75,6 +76,16 @@ Routing and profile-launch checks:
 ```
 
 The script checks rule priorities, unavailable browsers and profiles, argument passing, and launch errors. Chrome or Safari must be installed to check browser availability. Launch processes are checked with temporary apps, without opening links in a real browser or changing user settings.
+
+## Routing diagnostics
+
+Routing timing logs are disabled by default. To enable them, quit any running instance and launch the app from the project directory with:
+
+```sh
+open ./ContextRoute.app --args --debug-routing
+```
+
+The flag enables timing logs in the macOS system log for that run only. It is not saved in preferences. Log entries contain routing stages and durations; URLs are not recorded.
 
 ## Data and limitations
 

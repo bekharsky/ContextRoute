@@ -220,12 +220,14 @@ final class RouterModel: ObservableObject {
 
     func refreshRoutingCache() {
         let configuration = configuration
-        let startedAt = DispatchTime.now().uptimeNanoseconds
+        let startedAt = RoutingDiagnostics.isEnabled ? DispatchTime.now().uptimeNanoseconds : nil
         routingSnapshot = RoutePlanner.prepare(configuration)
-        RoutingDiagnostics.logCachePreparation(
-            startedAt: startedAt,
-            handlerCount: configuration.urlAppOverrides.filter(\.isEnabled).count,
-            routeCount: configuration.sourceRoutes.count)
+        if let startedAt {
+            RoutingDiagnostics.logCachePreparation(
+                startedAt: startedAt,
+                handlerCount: configuration.urlAppOverrides.filter(\.isEnabled).count,
+                routeCount: configuration.sourceRoutes.count)
+        }
         routeIssues = routingSnapshot.routeIssues
     }
 

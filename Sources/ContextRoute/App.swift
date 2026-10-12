@@ -83,7 +83,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var menuObservers: [NSObjectProtocol] = []
     private var menuCleanupScheduled = false
     private var isTerminating = false
-    private let processStartedAt = DispatchTime.now().uptimeNanoseconds
+    private let processStartedAt = RoutingDiagnostics.isEnabled ? DispatchTime.now().uptimeNanoseconds : nil
 
     func showSettingsWindow() {
         RouterModel.shared.refreshDefaultHandlerStatus()
@@ -295,6 +295,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         textUndoManager
     }
 
+    func application(_ application: NSApplication, willContinueUserActivityWithType userActivityType: String) -> Bool {
+        userActivityType == NSUserActivityTypeBrowsingWeb
+    }
+
+    func application(
+        _ application: NSApplication,
+        continue userActivity: NSUserActivity,
+        restorationHandler: @escaping ([NSUserActivityRestoring]) -> Void
+    ) -> Bool {
+        guard userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+              let url = userActivity.webpageURL,
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host != nil else { return false }
+
+        // Web Handoff has no local source process; use app handlers and the fallback browser.
+        routeIncomingURL(url, sourceBundleIdentifier: nil, fromHandoff: true)
+        return true
+    }
+
     @objc func handleGetURL(event: NSAppleEventDescriptor, reply: NSAppleEventDescriptor) {
         guard let rawURL = event.paramDescriptor(forKeyword: AEKeyword(keyDirectObject))?.stringValue,
               let url = URL(string: rawURL) else { return }
@@ -309,8 +328,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             sourceBundleIdentifier = nil
         }
 
+        routeIncomingURL(url, sourceBundleIdentifier: sourceBundleIdentifier)
+    }
+
+    private func routeIncomingURL(_ url: URL, sourceBundleIdentifier: String?, fromHandoff: Bool = false) {
         let trace = RoutingTrace(processStartedAt: processStartedAt)
-        trace.mark("url-received", details: "source_known=\(sourceBundleIdentifier != nil)")
+        trace?.mark("url-received", details: "source_known=\(sourceBundleIdentifier != nil) handoff=\(fromHandoff)")
         Task { @MainActor in
             RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier, trace: trace)
         }
