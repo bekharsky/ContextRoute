@@ -138,10 +138,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             .applicationName: "ContextRoute",
             .credits: credits
         ]
-        if let icon = NSImage(systemSymbolName: "arrow.triangle.branch", accessibilityDescription: "ContextRoute") {
-            options[.applicationIcon] = icon.withSymbolConfiguration(
-                NSImage.SymbolConfiguration(pointSize: 64, weight: .regular)
-                    .applying(NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor]))) ?? icon
+        if let iconURL = Bundle.main.url(forResource: "AppIcon", withExtension: "icns"),
+           let icon = NSImage(contentsOf: iconURL) {
+            options[.applicationIcon] = icon
         }
 
         activateForWindow()

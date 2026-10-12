@@ -29,6 +29,7 @@
 		A1000000000000000000001F /* WindowMenuCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1000000000000000000001F /* WindowMenuCommands.swift */; };
 		A10000000000000000000020 /* RouteEditorControls.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000020 /* RouteEditorControls.swift */; };
 		A10000000000000000000021 /* RoutingDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000021 /* RoutingDiagnostics.swift */; };
+		A10000000000000000000022 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = B10000000000000000000022 /* AppIcon.icns */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -59,6 +60,7 @@
 		B1000000000000000000001F /* WindowMenuCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WindowMenuCommands.swift; sourceTree = "<group>"; };
 		B10000000000000000000020 /* RouteEditorControls.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RouteEditorControls.swift; sourceTree = "<group>"; };
 		B10000000000000000000021 /* RoutingDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoutingDiagnostics.swift; sourceTree = "<group>"; };
+		B10000000000000000000022 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -77,7 +79,7 @@
 			sourceTree = "<group>";
 		};
 		D10000000000000000000002 /* Sources */ = {isa = PBXGroup; children = (B10000000000000000000001 /* App.swift */, B10000000000000000000002 /* BrowserCatalog.swift */, B10000000000000000000003 /* Localization.swift */, B10000000000000000000004 /* Models.swift */, B10000000000000000000005 /* RouterModel.swift */, B10000000000000000000006 /* SettingsView.swift */, B10000000000000000000012 /* AppHandlersView.swift */, B10000000000000000000013 /* BrowserLauncher.swift */, B10000000000000000000014 /* ConfigurationStore.swift */, B10000000000000000000015 /* EditingCommandState.swift */, B10000000000000000000016 /* LoginItemModel.swift */, B10000000000000000000017 /* RouteCheckerView.swift */, B10000000000000000000018 /* RouteEditorView.swift */, B10000000000000000000020 /* RouteEditorControls.swift */, B10000000000000000000019 /* RoutePlanner.swift */, B10000000000000000000021 /* RoutingDiagnostics.swift */, B1000000000000000000001A /* RoutesPage.swift */, B1000000000000000000001B /* SettingsComponents.swift */, B1000000000000000000001C /* SettingsPreferencesView.swift */, B1000000000000000000001D /* SettingsSearch.swift */, B1000000000000000000001E /* SettingsWindow.swift */, B1000000000000000000001F /* WindowMenuCommands.swift */, ); path = Sources/ContextRoute; sourceTree = "<group>"; };
-		D10000000000000000000003 /* Resources */ = {isa = PBXGroup; children = (B10000000000000000000009 /* Localizable.strings */, ); path = Resources; sourceTree = "<group>"; };
+		D10000000000000000000003 /* Resources */ = {isa = PBXGroup; children = (B10000000000000000000022 /* AppIcon.icns */, B10000000000000000000009 /* Localizable.strings */, ); path = Resources; sourceTree = "<group>"; };
 		D10000000000000000000004 /* Products */ = {isa = PBXGroup; children = (B10000000000000000000011 /* ContextRoute.app */, ); name = Products; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
@@ -113,7 +115,7 @@
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		C10000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000007 /* Localizable.strings in Resources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		C10000000000000000000002 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (A10000000000000000000022 /* AppIcon.icns in Resources */, A10000000000000000000007 /* Localizable.strings in Resources */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
