@@ -45,7 +45,7 @@ struct RouteCheckerView: View {
                     }.frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            Text("Priority: Open in apps → App routes → Fallback browser")
+            Text("Priority: Website routes → Open in apps → App routes → Fallback browser")
                 .font(.caption).foregroundStyle(.secondary)
             HStack { Spacer(); Button("Done") { dismiss() }.keyboardShortcut(.cancelAction) }
         }

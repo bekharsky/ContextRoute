@@ -15,17 +15,21 @@ enum RouteDestination: Sendable {
 }
 
 struct RouteDecision: Sendable {
-    enum Kind: String, Sendable { case handler, appRoute, fallback, unavailable }
+    enum Kind: String, Sendable { case handler, websiteRoute, appRoute, fallback, unavailable }
     var kind: Kind
     var destination: RouteDestination
     var targetName: String
     var explanation: LocalizedMessage
     var warnings: [LocalizedMessage] = []
     var sourceRouteID: UUID?
+    var websiteRouteID: UUID?
+
+    var routeID: UUID? { websiteRouteID ?? sourceRouteID }
 
     var kindName: String {
         let key = switch kind {
         case .handler: "Open in apps"
+        case .websiteRoute: "Website route"
         case .appRoute: "App route"
         case .fallback: "Fallback browser"
         case .unavailable: "Unavailable"
@@ -40,22 +44,32 @@ enum RoutePlanner {
     struct Snapshot: Sendable {
         fileprivate var handlers: [PreparedHandler] = []
         fileprivate var sourceRoutes: [String: PreparedRoute] = [:]
+        fileprivate var websiteRoutes: [PreparedWebsiteRoute] = []
+        fileprivate var needsAddressMatching = false
         fileprivate var fallback: Target?
         fileprivate var fallbackName = ""
+        var fallbackIssue: LocalizedMessage?
 
         init() {}
 
         var routeIssues: [UUID: LocalizedMessage] {
-            Dictionary(sourceRoutes.values.compactMap { prepared in
+            let appIssues = sourceRoutes.values.compactMap { prepared -> (UUID, LocalizedMessage)? in
                 if case let .unavailable(issue) = prepared.availability { return (prepared.route.id, issue) }
                 return nil
-            }, uniquingKeysWith: { first, _ in first })
+            }
+            let websiteIssues = websiteRoutes.compactMap { prepared -> (UUID, LocalizedMessage)? in
+                if case let .unavailable(issue) = prepared.availability { return (prepared.route.id, issue) }
+                return nil
+            }
+            return Dictionary(appIssues + websiteIssues, uniquingKeysWith: { first, _ in first })
         }
 
         var fallbackOnly: Snapshot {
             var result = self
             result.handlers = []
             result.sourceRoutes = [:]
+            result.websiteRoutes = []
+            result.needsAddressMatching = false
             return result
         }
     }
@@ -89,18 +103,35 @@ enum RoutePlanner {
         let appURL: URL?
     }
 
+    fileprivate struct PreparedWebsiteRoute: Sendable {
+        let route: WebsiteRoute
+        let pattern: WebsitePattern?
+        let availability: Availability
+    }
+
     static func prepare(_ configuration: RouterConfiguration) -> Snapshot {
         var snapshot = Snapshot()
         snapshot.handlers = configuration.urlAppOverrides.filter(\.isEnabled).map {
             PreparedHandler(rule: $0, appURL: BrowserCatalog.findApplication(for: $0))
         }
         for route in configuration.sourceRoutes where snapshot.sourceRoutes[route.sourceBundleIdentifier] == nil {
-            snapshot.sourceRoutes[route.sourceBundleIdentifier] = PreparedRoute(route: route, availability: prepare(route))
+            snapshot.sourceRoutes[route.sourceBundleIdentifier] = PreparedRoute(route: route, availability: prepare(route.target))
         }
-        if let bundleID = configuration.fallbackBrowserBundleIdentifier,
-           let browser = BrowserCatalog.browser(bundleIdentifier: bundleID) {
-            snapshot.fallback = .application(browser.appURL)
-            snapshot.fallbackName = configuration.fallbackBrowserName ?? browser.name
+        snapshot.websiteRoutes = configuration.websiteRoutes.map { route in
+            let pattern = route.pattern.normalized
+            return PreparedWebsiteRoute(route: route, pattern: pattern,
+                availability: pattern == nil
+                    ? .unavailable(LocalizedMessage(key: route.pattern.validationKey)) : prepare(route.target))
+        }.sorted { left, right in
+            (left.pattern ?? left.route.pattern).isMoreSpecific(than: right.pattern ?? right.route.pattern)
+        }
+        snapshot.needsAddressMatching = snapshot.websiteRoutes.contains { $0.route.isEnabled && $0.pattern?.kind != .domain }
+        if let target = configuration.fallbackTarget {
+            snapshot.fallbackName = target.displayName
+            switch prepare(target) {
+            case let .available(destination): snapshot.fallback = destination
+            case let .unavailable(issue): snapshot.fallbackIssue = issue
+            }
         }
         return snapshot
     }
@@ -111,11 +142,29 @@ enum RoutePlanner {
                 explanation: LocalizedMessage(key: "Enter a complete http or https link."))
         }
         var warnings: [LocalizedMessage] = []
+        if !snapshot.websiteRoutes.isEmpty, let host = WebsitePattern.normalizedHost(url) {
+            let address = snapshot.needsAddressMatching ? WebsitePattern.canonicalURL(url) : nil
+            if let matching = snapshot.websiteRoutes.first(where: {
+                $0.route.isEnabled && $0.pattern?.matches(host: host, address: address) == true
+            }) {
+                switch matching.availability {
+                case let .available(target):
+                    return RouteDecision(kind: .websiteRoute, destination: target.destination(for: url),
+                        targetName: matching.route.target.displayName,
+                        explanation: LocalizedMessage(key: "Matches the website rule for %@.", arguments: [matching.route.pattern.value]),
+                        websiteRouteID: matching.route.id)
+                case let .unavailable(issue):
+                    return RouteDecision(kind: .unavailable, destination: .unavailable,
+                        targetName: matching.route.target.displayName, explanation: issue, websiteRouteID: matching.route.id)
+                }
+            }
+        }
         if let handler = snapshot.handlers.first(where: { $0.rule.matches(url) }) {
             if let appURL = handler.appURL {
                 return RouteDecision(kind: .handler,
                     destination: .application(appURL: appURL, url: handler.rule.translatedURL(url)), targetName: handler.rule.name,
-                    explanation: LocalizedMessage(key: "This link matches %@. Open in apps takes priority over app routes.", arguments: [handler.rule.name]))
+                    explanation: LocalizedMessage(key: "This link matches %@. Open in apps takes priority over app routes.", arguments: [handler.rule.name]),
+                    warnings: warnings)
             }
             warnings.append(LocalizedMessage(key: "%@ isn't installed; using the normal route for this link.", arguments: [handler.rule.name]))
         }
@@ -143,21 +192,21 @@ enum RoutePlanner {
         }
         guard let fallback = snapshot.fallback else {
             return RouteDecision(kind: .unavailable, destination: .unavailable, targetName: "",
-                explanation: LocalizedMessage(key: "Choose an installed fallback browser in Settings."),
-                warnings: warnings, sourceRouteID: route?.id)
+                explanation: snapshot.fallbackIssue ?? LocalizedMessage(key: "Choose an installed fallback browser in Settings."),
+                warnings: warnings)
         }
         return RouteDecision(kind: .fallback, destination: fallback.destination(for: url),
             targetName: snapshot.fallbackName,
             explanation: explanation, warnings: warnings, sourceRouteID: route?.id)
     }
 
-    private static func prepare(_ route: SourceRoute) -> Availability {
+    private static func prepare(_ route: BrowserTarget) -> Availability {
         guard route.browserBundleIdentifier != Bundle.main.bundleIdentifier,
-              let appURL = BrowserCatalog.applicationURL(bundleIdentifier: route.browserBundleIdentifier),
-              FileManager.default.fileExists(atPath: appURL.path) else {
+              let browser = BrowserCatalog.browser(bundleIdentifier: route.browserBundleIdentifier),
+              FileManager.default.fileExists(atPath: browser.appURL.path) else {
             return .unavailable(LocalizedMessage(key: "%@ is not installed. Choose another browser.", arguments: [route.browserName]))
         }
-        let browser = BrowserInfo(bundleIdentifier: route.browserBundleIdentifier, name: route.browserName, appURL: appURL)
+        let appURL = browser.appURL
         guard let profileID = route.profileIdentifier else { return .available(.application(appURL)) }
         guard BrowserCatalog.supportsProfiles(for: browser) else {
             return .unavailable(LocalizedMessage(key: "This browser no longer supports the selected profile."))

@@ -3,6 +3,8 @@ import SwiftUI
 
 private enum SettingsSheet {
     case route(SourceRoute?)
+    case website(WebsiteRoute?)
+    case fallback
     case checker
 }
 
@@ -31,6 +33,8 @@ struct SettingsView: View {
     private var sheetContent: some View {
         switch sheet {
         case let .route(route): RouteEditorView(model: model, browsers: browsers, route: route)
+        case let .website(route): RouteEditorView(model: model, browsers: browsers, context: .website(route))
+        case .fallback: RouteEditorView(model: model, browsers: browsers, context: .fallback)
         case .checker: RouteCheckerView(model: model)
         case nil: EmptyView()
         }
@@ -73,7 +77,9 @@ struct SettingsView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showRoutingFailureNotification)) { _ in
             searchText = ""
-            selectSection(model.routingIssue?.routeID == nil ? .settings : .routes)
+            if let id = model.routingIssue?.routeID {
+                selectSection(model.websiteRoutes.contains { $0.id == id } ? .websites : .routes)
+            } else { selectSection(.settings) }
         }
     }
 
@@ -137,10 +143,11 @@ struct SettingsView: View {
         pageContent {
             switch selectedSection {
             case .routes: routesPage
+            case .websites: websitesPage
             case .handlers: handlersPage
             case .settings:
                 SettingsPreferencesView(model: model, browsers: browsers, appearance: $appearance,
-                    language: $language, highlightedAnchor: highlightedAnchor)
+                    language: $language, highlightedAnchor: highlightedAnchor, onEditFallback: { sheet = .fallback })
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -164,7 +171,9 @@ struct SettingsView: View {
                     Label("No routes yet", systemImage: "arrow.triangle.branch")
                 } description: {
                     Text("Add an app, browser, and profile to route its links automatically.")
-                }.padding(.vertical, 16)
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 16)
             } else {
                 LazyVStack(spacing: 8) {
                     ForEach(model.sourceRoutes) { route in
@@ -189,7 +198,7 @@ struct SettingsView: View {
 
     private var handlersPage: some View {
         VStack(alignment: .leading, spacing: 14) {
-            SectionIntro("Send matching links straight to their apps. Other links follow your app routes.")
+            SectionIntro("Send matching links straight to their apps. Website routes take priority.")
             SettingsCard(inset: 0) {
                 VStack(spacing: 0) {
                     ForEach(Array(model.urlAppOverrides.enumerated()), id: \.element.id) { index, item in
@@ -204,6 +213,46 @@ struct SettingsView: View {
             }
             Text("If an app isn't installed, its links follow your app routes or use the fallback browser.")
                 .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    private var websitesPage: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            SectionIntro("Choose a browser and profile for a domain or address, regardless of the source app.")
+            HStack(spacing: 16) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("Website rules").font(.headline)
+                    Text("More specific rules take priority. Regular expressions are not needed.")
+                        .font(.callout).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Button { sheet = .website(nil) } label: { Label("Add website route", systemImage: "plus") }
+                    .buttonStyle(.bordered).controlSize(.regular).disabled(!model.canEditSettings)
+            }
+            if model.websiteRoutes.isEmpty {
+                ContentUnavailableView {
+                    Label("No website routes yet", systemImage: "globe")
+                } description: {
+                    Text("For example, open youtube.com in your personal browser profile.")
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.vertical, 16)
+            } else {
+                LazyVStack(spacing: 8) {
+                    ForEach(model.websiteRoutes) { route in
+                        WebsiteRouteRow(route: route, onEdit: { sheet = .website(route) }, onDelete: { model.remove(route) },
+                            onToggle: { model.setWebsiteRouteEnabled(id: route.id, enabled: $0) }, issue: model.routeIssues[route.id])
+                            .disabled(!model.canEditSettings)
+                            .searchTarget(route.id.uuidString, highlighted: highlightedAnchor)
+                    }
+                }
+            }
+            HStack {
+                Button { sheet = .checker } label: { Label("Check route…", systemImage: "arrow.triangle.branch") }
+                    .buttonStyle(.bordered)
+                Spacer()
+                if model.canUndo { Button("Undo", action: model.undo).buttonStyle(.bordered).help(model.undoActionName) }
+            }
         }
     }
 
@@ -266,6 +315,8 @@ struct SettingsView: View {
                 }
                 if let id = issue.routeID, let route = model.sourceRoutes.first(where: { $0.id == id }) {
                     Button("Edit route") { sheet = .route(route) }.buttonStyle(.link).disabled(!model.canEditSettings)
+                } else if let id = issue.routeID, let route = model.websiteRoutes.first(where: { $0.id == id }) {
+                    Button("Edit route") { sheet = .website(route) }.buttonStyle(.link).disabled(!model.canEditSettings)
                 }
             }
         }

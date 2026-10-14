@@ -16,9 +16,14 @@ final class RouterModel: ObservableObject {
 
     enum Recovery { case backup, unreadable }
     @Published private(set) var sourceRoutes: [SourceRoute] = []
+    @Published private(set) var websiteRoutes: [WebsiteRoute] = []
     @Published private(set) var urlAppOverrides: [URLAppOverride] = URLAppOverride.defaults
     @Published private(set) var fallbackBrowserBundleIdentifier: String?
     @Published private(set) var fallbackBrowserName: String?
+    @Published private(set) var fallbackProfileIdentifier: String?
+    @Published private(set) var fallbackProfileName: String?
+    @Published private(set) var fallbackUserDataDirectory: String?
+    @Published private(set) var fallbackIssue: LocalizedMessage?
     @Published private(set) var isContextRouteDefaultHandler = false
     @Published private(set) var isSettingDefaultHandler = false
     @Published private(set) var defaultHandlerError: LocalizedMessage?
@@ -43,8 +48,10 @@ final class RouterModel: ObservableObject {
     var canEditSettings: Bool { recovery == nil }
     var undoActionName: String { undoHistory.last.map { ContextRouteLocalization.string($0.actionName) } ?? "" }
     var configuration: RouterConfiguration {
-        RouterConfiguration(sourceRoutes: sourceRoutes, urlAppOverrides: urlAppOverrides,
-            fallbackBrowserBundleIdentifier: fallbackBrowserBundleIdentifier, fallbackBrowserName: fallbackBrowserName)
+        RouterConfiguration(sourceRoutes: sourceRoutes, websiteRoutes: websiteRoutes, urlAppOverrides: urlAppOverrides,
+            fallbackBrowserBundleIdentifier: fallbackBrowserBundleIdentifier, fallbackBrowserName: fallbackBrowserName,
+            fallbackProfileIdentifier: fallbackProfileIdentifier, fallbackProfileName: fallbackProfileName,
+            fallbackUserDataDirectory: fallbackUserDataDirectory)
     }
 
     private init() {
@@ -130,15 +137,58 @@ final class RouterModel: ObservableObject {
     }
 
     @discardableResult
+    func add(_ route: WebsiteRoute) -> Bool {
+        guard let pattern = route.pattern.normalized else { return false }
+        var updated = configuration
+        var normalizedRoute = route
+        normalizedRoute.pattern = pattern
+        updated.websiteRoutes.removeAll { $0.id == route.id || $0.pattern.normalized == pattern }
+        updated.websiteRoutes.append(normalizedRoute)
+        updated.websiteRoutes.sort { $0.pattern.isMoreSpecific(than: $1.pattern) }
+        return commit(updated, actionName: "Save website route")
+    }
+
+    func remove(_ route: WebsiteRoute) {
+        var updated = configuration
+        updated.websiteRoutes.removeAll { $0.id == route.id }
+        _ = commit(updated, actionName: "Delete website route")
+    }
+
+    func setWebsiteRouteEnabled(id: UUID, enabled: Bool) {
+        var updated = configuration
+        guard let index = updated.websiteRoutes.firstIndex(where: { $0.id == id }) else { return }
+        updated.websiteRoutes[index].isEnabled = enabled
+        _ = commit(updated, actionName: "Change website route")
+    }
+
+    @discardableResult
     func setFallbackBrowser(_ browser: BrowserInfo?, recordUndo: Bool = true) -> Bool {
         var updated = configuration
         updated.fallbackBrowserBundleIdentifier = browser?.bundleIdentifier
         updated.fallbackBrowserName = browser?.name
+        if browser?.bundleIdentifier != fallbackBrowserBundleIdentifier {
+            updated.fallbackProfileIdentifier = nil
+            updated.fallbackProfileName = nil
+            updated.fallbackUserDataDirectory = nil
+        }
         if commit(updated, actionName: recordUndo ? "Change fallback browser" : nil) {
             defaultHandlerError = nil
             return true
         }
         return false
+    }
+
+    @discardableResult
+    func setFallbackTarget(_ target: BrowserTarget) -> Bool {
+        var updated = configuration
+        updated.fallbackBrowserBundleIdentifier = target.browserBundleIdentifier
+        updated.fallbackBrowserName = target.browserName
+        updated.fallbackProfileIdentifier = target.profileIdentifier
+        updated.fallbackProfileName = target.profileName
+        updated.fallbackUserDataDirectory = target.userDataDirectory
+        guard commit(updated, actionName: "Change fallback browser") else { return false }
+        defaultHandlerError = nil
+        return true
     }
 
     @discardableResult
@@ -167,9 +217,17 @@ final class RouterModel: ObservableObject {
 
     private func apply(_ config: RouterConfiguration) {
         sourceRoutes = config.sourceRoutes
+        websiteRoutes = config.websiteRoutes.map { route in
+            var normalized = route
+            normalized.pattern = route.pattern.normalized ?? route.pattern
+            return normalized
+        }.sorted { $0.pattern.isMoreSpecific(than: $1.pattern) }
         urlAppOverrides = Self.mergeBuiltInOverrides(config.urlAppOverrides)
         fallbackBrowserBundleIdentifier = config.fallbackBrowserBundleIdentifier
         fallbackBrowserName = config.fallbackBrowserName
+        fallbackProfileIdentifier = config.fallbackProfileIdentifier
+        fallbackProfileName = config.fallbackProfileName
+        fallbackUserDataDirectory = config.fallbackUserDataDirectory
         refreshRoutingCache()
     }
 
@@ -226,9 +284,10 @@ final class RouterModel: ObservableObject {
             RoutingDiagnostics.logCachePreparation(
                 startedAt: startedAt,
                 handlerCount: configuration.urlAppOverrides.filter(\.isEnabled).count,
-                routeCount: configuration.sourceRoutes.count)
+                routeCount: configuration.sourceRoutes.count + configuration.websiteRoutes.count)
         }
         routeIssues = routingSnapshot.routeIssues
+        fallbackIssue = routingSnapshot.fallbackIssue
     }
 
     func registerAsDefaultHandler() {
@@ -290,17 +349,17 @@ final class RouterModel: ObservableObject {
     private func open(_ result: RouteDecision, url: URL, clearsPreviousIssue: Bool, trace: RoutingTrace? = nil) {
         if result.kind == .unavailable {
             trace?.mark("route-unavailable")
-            reportFailure(result.explanation, url: url, routeID: result.sourceRouteID)
+            reportFailure(result.explanation, url: url, routeID: result.routeID)
             return
         }
         if clearsPreviousIssue { routingIssue = nil }
         if let warning = result.warnings.first {
-            routingIssue = RoutingIssue(message: warning, url: url, routeID: result.sourceRouteID, needsAttention: false)
+            routingIssue = RoutingIssue(message: warning, url: url, routeID: result.routeID, needsAttention: false)
         }
         launcher.open(result.destination, trace: trace) { [weak self] error in
             guard let self, let error else { return }
             self.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@", arguments: [result.targetName, error.localizedDescription]),
-                url: url, routeID: result.sourceRouteID)
+                url: url, routeID: result.kind == .fallback ? nil : result.routeID)
         }
     }
 

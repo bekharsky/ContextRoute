@@ -2,10 +2,18 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum RouteEditorContext {
+    case app(SourceRoute?)
+    case website(WebsiteRoute?)
+    case fallback
+}
+
 struct RouteEditorView: View {
     @ObservedObject var model: RouterModel
     let browsers: [BrowserInfo]
     let route: SourceRoute?
+    let context: RouteEditorContext
+    private let storedTarget: BrowserTarget?
     @Environment(\.dismiss) private var dismiss
     @State private var sourceBundleIdentifier: String
     @State private var sourceName: String
@@ -16,28 +24,65 @@ struct RouteEditorView: View {
     @State private var scanGeneration = 0
     @State private var isScanning = false
     @State private var confirmsReplacement = false
+    @State private var websitePattern: WebsitePattern
 
     init(model: RouterModel, browsers: [BrowserInfo], route: SourceRoute?) {
+        self.init(model: model, browsers: browsers, context: .app(route))
+    }
+
+    init(model: RouterModel, browsers: [BrowserInfo], context: RouteEditorContext) {
         self.model = model
         self.browsers = browsers
+        self.context = context
+        let route: SourceRoute?
+        let target: BrowserTarget?
+        let pattern: WebsitePattern
+        switch context {
+        case let .app(existing):
+            route = existing
+            target = existing?.target
+            pattern = WebsitePattern()
+        case let .website(existing):
+            route = nil
+            target = existing?.target
+            pattern = existing?.pattern ?? WebsitePattern()
+        case .fallback:
+            route = nil
+            target = model.configuration.fallbackTarget
+            pattern = WebsitePattern()
+        }
         self.route = route
-        let preferred = route?.browserBundleIdentifier ?? model.fallbackBrowserBundleIdentifier
+        self.storedTarget = target
+        _websitePattern = State(initialValue: pattern)
+        let preferred = target?.browserBundleIdentifier ?? model.fallbackBrowserBundleIdentifier
         let browser = browsers.first { $0.bundleIdentifier == preferred } ?? browsers.first
-        let initialBrowserIdentifier = route?.browserBundleIdentifier ?? browser?.bundleIdentifier ?? ""
+        let initialBrowserIdentifier = target?.browserBundleIdentifier ?? browser?.bundleIdentifier ?? ""
         _sourceBundleIdentifier = State(initialValue: route?.sourceBundleIdentifier ?? "")
         _sourceName = State(initialValue: route?.sourceName ?? "")
         _browserBundleIdentifier = State(initialValue: initialBrowserIdentifier)
-        _userDataDirectory = State(initialValue: route?.userDataDirectory ?? browser.flatMap { BrowserCatalog.defaultUserDataDirectory(for: $0) } ?? "")
-        _profileIdentifier = State(initialValue: route?.profileIdentifier ?? "")
+        _userDataDirectory = State(initialValue: target?.userDataDirectory ?? browser.flatMap { BrowserCatalog.defaultUserDataDirectory(for: $0) } ?? "")
+        _profileIdentifier = State(initialValue: target?.profileIdentifier ?? "")
         _isScanning = State(initialValue: browsers.first { $0.bundleIdentifier == initialBrowserIdentifier }
             .map { BrowserCatalog.supportsProfiles(for: $0) } ?? false)
     }
 
     private var selectedBrowser: BrowserInfo? { browsers.first { $0.bundleIdentifier == browserBundleIdentifier } }
+    private var isWebsite: Bool { if case .website = context { return true }; return false }
+    private var isFallback: Bool { if case .fallback = context { return true }; return false }
+    private var websiteRoute: WebsiteRoute? { if case let .website(route) = context { return route }; return nil }
     private var profiles: [BrowserProfile] { profileScan?.profiles ?? [] }
     private var profileSelectionIsValid: Bool { profileIdentifier.isEmpty || profiles.contains { $0.id == profileIdentifier } }
     private var replacement: SourceRoute? {
-        model.sourceRoutes.first { $0.sourceBundleIdentifier == sourceBundleIdentifier && $0.id != route?.id }
+        guard !isWebsite, !isFallback else { return nil }
+        return model.sourceRoutes.first { $0.sourceBundleIdentifier == sourceBundleIdentifier && $0.id != route?.id }
+    }
+    private var websiteReplacement: WebsiteRoute? {
+        guard isWebsite, let pattern = websitePattern.normalized else { return nil }
+        return model.websiteRoutes.first { $0.pattern.normalized == pattern && $0.id != websiteRoute?.id }
+    }
+    private var hasReplacement: Bool { replacement != nil || websiteReplacement != nil }
+    private var inputIsValid: Bool {
+        isFallback || (isWebsite ? websitePattern.normalized != nil : !sourceBundleIdentifier.isEmpty)
     }
     private var scanID: String { "\(browserBundleIdentifier)|\(userDataDirectory)|\(scanGeneration)" }
     private var usesDefaultProfileFolder: Bool {
@@ -53,7 +98,7 @@ struct RouteEditorView: View {
         var options = browsers.map { SettingsPopup.Option(id: $0.bundleIdentifier, title: $0.name) }
         if selectedBrowser == nil, !browserBundleIdentifier.isEmpty {
             options.insert(.init(id: browserBundleIdentifier,
-                title: ContextRouteLocalization.format("%@ (not installed)", arguments: [route?.browserName ?? browserBundleIdentifier])), at: 0)
+                title: ContextRouteLocalization.format("%@ (not installed)", arguments: [storedTarget?.browserName ?? browserBundleIdentifier])), at: 0)
         }
         if options.isEmpty {
             options.append(.init(id: "", title: ContextRouteLocalization.string("Choose browser")))
@@ -63,7 +108,7 @@ struct RouteEditorView: View {
     private var profileOptions: [SettingsPopup.Option] {
         var options = [SettingsPopup.Option(id: "", title: ContextRouteLocalization.string("Use browser default"))]
         if !profileIdentifier.isEmpty, !profileSelectionIsValid {
-            let name = route?.profileIdentifier == profileIdentifier ? (route?.profileName ?? profileIdentifier) : profileIdentifier
+            let name = storedTarget?.profileIdentifier == profileIdentifier ? (storedTarget?.profileName ?? profileIdentifier) : profileIdentifier
             options.append(.init(id: profileIdentifier,
                 title: isScanning || profileScan == nil ? name : ContextRouteLocalization.format("%@ (unavailable)", arguments: [name])))
         }
@@ -76,11 +121,18 @@ struct RouteEditorView: View {
             header
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
-                    sourceAppCard
+                    if isWebsite { websiteMatchCard }
+                    else if !isFallback { sourceAppCard }
                     browserCard
                     if let replacement {
                         Label(ContextRouteLocalization.format("Saving replaces the existing route for %@. You can undo this change.", arguments: [replacement.sourceName]),
                             systemImage: "arrow.triangle.2.circlepath")
+                            .font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if let websiteReplacement {
+                        Label(ContextRouteLocalization.format("Saving replaces the existing website rule for %@. You can undo this change.",
+                            arguments: [websiteReplacement.pattern.value]), systemImage: "arrow.triangle.2.circlepath")
                             .font(.callout).foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -97,7 +149,7 @@ struct RouteEditorView: View {
             Divider()
             footer
         }
-        .frame(width: 580, height: 420)
+        .frame(width: 580, height: isWebsite ? (websitePattern.kind == .domain ? 432 : 456) : isFallback ? 350 : 420)
         .controlSize(.regular)
         .onChange(of: browserBundleIdentifier) { _, _ in
             profileIdentifier = ""
@@ -106,22 +158,76 @@ struct RouteEditorView: View {
             isScanning = selectedBrowser.map { BrowserCatalog.supportsProfiles(for: $0) } ?? false
         }
         .task(id: scanID) { await refreshProfiles() }
-        .alert("Replace app route?", isPresented: $confirmsReplacement) {
+        .alert(isWebsite ? LocalizedStringKey("Replace website route?") : LocalizedStringKey("Replace app route?"), isPresented: $confirmsReplacement) {
             Button("Cancel", role: .cancel) { }
             Button("Replace", role: .destructive, action: save)
-        } message: { Text("The existing route for this source app will be replaced. You can undo the change.") }
+        } message: {
+            Text(isWebsite ? LocalizedStringKey("The existing route for this address will be replaced. You can undo the change.")
+                : LocalizedStringKey("The existing route for this source app will be replaced. You can undo the change."))
+        }
     }
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(route == nil ? LocalizedStringKey("New app route") : LocalizedStringKey("Edit app route"))
+            Text(isFallback ? LocalizedStringKey("Fallback browser")
+                : isWebsite ? (websiteRoute == nil ? LocalizedStringKey("New website route") : LocalizedStringKey("Edit website route"))
+                : (route == nil ? LocalizedStringKey("New app route") : LocalizedStringKey("Edit app route")))
                 .font(.title2.weight(.semibold))
-            SectionIntro("Choose a source app, browser, and optional profile.")
+            SectionIntro(isFallback ? "Choose a browser and an optional profile for unmatched links."
+                : isWebsite ? "Choose a domain or address, browser, and optional profile."
+                : "Choose a source app, browser, and optional profile.")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, RouteEditorLayout.windowInset)
         .padding(.top, RouteEditorLayout.windowInset)
         .padding(.bottom, RouteEditorLayout.sectionSpacing)
+    }
+
+    private var websiteMatchCard: some View {
+        SettingsCard(inset: RouteEditorLayout.cardInset) {
+            VStack(alignment: .leading, spacing: RouteEditorLayout.sectionSpacing) {
+                formRow("Match") {
+                    HStack(spacing: RouteEditorLayout.controlSpacing) {
+                        SettingsPopup(options: WebsiteMatchKind.allCases.map {
+                            .init(id: $0.rawValue, title: ContextRouteLocalization.string($0.titleKey))
+                        }, selection: Binding(get: { websitePattern.kind.rawValue }, set: { value in
+                            if let kind = WebsiteMatchKind(rawValue: value) { websitePattern.kind = kind }
+                        }), label: ContextRouteLocalization.string("Match"))
+                        activitySpace
+                    }
+                }
+                formRow(websitePattern.kind == .domain ? "Domain" : "Address") {
+                    HStack(spacing: RouteEditorLayout.controlSpacing) {
+                        TextField(websitePattern.kind == .domain ? "youtube.com" : "https://example.com/work/", text: $websitePattern.value)
+                            .textFieldStyle(.roundedBorder)
+                            .accessibilityLabel(websitePattern.kind == .domain ? "Domain" : "Address")
+                        if websitePattern.kind == .domain {
+                            Toggle("Include subdomains", isOn: $websitePattern.includesSubdomains)
+                                .toggleStyle(.checkbox)
+                                .fixedSize()
+                        }
+                        activitySpace
+                    }
+                }
+                if let hint = websiteMatchHint {
+                    Text(hint)
+                        .font(.caption).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+        }
+    }
+
+    private var websiteMatchHint: LocalizedStringKey? {
+        if !websitePattern.value.isEmpty && websitePattern.normalized == nil {
+            return LocalizedStringKey(websitePattern.validationKey)
+        }
+        switch websitePattern.kind {
+        case .domain: return nil
+        case .urlPrefix: return "Matches addresses starting with this URL. Path, query, and fragment are case-sensitive."
+        case .exactURL: return "Matches only this URL, including its path, query, and fragment."
+        }
     }
 
     private var sourceAppCard: some View {
@@ -263,11 +369,11 @@ struct RouteEditorView: View {
         HStack(spacing: RouteEditorLayout.controlSpacing) {
             Spacer()
             Button("Cancel") { dismiss() }.buttonStyle(.bordered).keyboardShortcut(.cancelAction)
-            Button(replacement == nil ? LocalizedStringKey("Save route") : LocalizedStringKey("Replace route")) {
-                if replacement != nil { confirmsReplacement = true } else { save() }
+            Button(isFallback ? LocalizedStringKey("Save") : hasReplacement ? LocalizedStringKey("Replace route") : LocalizedStringKey("Save route")) {
+                if hasReplacement { confirmsReplacement = true } else { save() }
             }
             .primaryActionStyle().keyboardShortcut(.defaultAction)
-            .disabled(sourceBundleIdentifier.isEmpty || selectedBrowser == nil || !profileSelectionIsValid || isScanning || !model.canEditSettings)
+            .disabled(!inputIsValid || selectedBrowser == nil || !profileSelectionIsValid || isScanning || !model.canEditSettings)
         }
         .padding(.horizontal, RouteEditorLayout.windowInset)
         .padding(.vertical, RouteEditorLayout.cardInset)
@@ -316,6 +422,7 @@ struct RouteEditorView: View {
         guard let browser = selectedBrowser, BrowserCatalog.supportsProfiles(for: browser) else {
             profileScan = nil
             isScanning = false
+            if selectedBrowser != nil { profileIdentifier = "" }
             return
         }
         isScanning = true
@@ -329,16 +436,27 @@ struct RouteEditorView: View {
     private func save() {
         guard let browser = selectedBrowser, profileSelectionIsValid else { return }
         let profile = profiles.first { $0.id == profileIdentifier }
+        let target = BrowserTarget(browserBundleIdentifier: browser.bundleIdentifier, browserName: browser.name,
+            profileIdentifier: profile?.id, profileName: profile?.name,
+            userDataDirectory: BrowserCatalog.supportsProfiles(for: browser) && !usesDefaultProfileFolder ? userDataDirectory : nil)
+        if isFallback {
+            if model.setFallbackTarget(target) { dismiss() }
+            return
+        }
+        if isWebsite {
+            guard let pattern = websitePattern.normalized else { return }
+            var updated = websiteRoute ?? WebsiteRoute(pattern: pattern, target: target)
+            updated.pattern = pattern
+            updated.target = target
+            if model.add(updated) { dismiss() }
+            return
+        }
         var updated = route ?? SourceRoute(sourceBundleIdentifier: sourceBundleIdentifier, sourceName: sourceName,
             browserBundleIdentifier: browser.bundleIdentifier, browserName: browser.name,
             profileIdentifier: nil, profileName: nil, userDataDirectory: nil)
         updated.sourceBundleIdentifier = sourceBundleIdentifier
         updated.sourceName = sourceName.isEmpty ? sourceBundleIdentifier : sourceName
-        updated.browserBundleIdentifier = browser.bundleIdentifier
-        updated.browserName = browser.name
-        updated.profileIdentifier = profile?.id
-        updated.profileName = profile?.name
-        updated.userDataDirectory = BrowserCatalog.supportsProfiles(for: browser) ? userDataDirectory : nil
+        updated.target = target
         if model.add(updated) { dismiss() }
     }
 }

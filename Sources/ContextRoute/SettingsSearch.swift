@@ -1,11 +1,12 @@
 import SwiftUI
 
 enum SettingsSection: CaseIterable, Identifiable, Hashable {
-    case routes, handlers, settings
+    case routes, websites, handlers, settings
     var id: Self { self }
     var key: String {
         switch self {
         case .routes: "App routes"
+        case .websites: "Website routes"
         case .handlers: "Open in apps"
         case .settings: "Settings"
         }
@@ -15,6 +16,7 @@ enum SettingsSection: CaseIterable, Identifiable, Hashable {
     var symbol: String {
         switch self {
         case .routes: "arrow.triangle.branch"
+        case .websites: "globe"
         case .handlers: "arrow.up.right.square"
         case .settings: "gearshape"
         }
@@ -36,7 +38,8 @@ enum SettingsSearchIndex {
             SettingsSearchResult(id: $0.key, title: $0.resolvedTitle, section: $0, anchor: "top", keywords: $0.key)
         }
         let preferences: [(String, String, String)] = [
-            ("Fallback browser", "fallback", "browser default fallback резервный браузер браузер по умолчанию " + browsers.map(\.name).joined(separator: " ")),
+            ("Fallback browser", "fallback", "browser default fallback profile резервный браузер профиль браузер по умолчанию "
+                + browsers.map(\.name).joined(separator: " ") + " " + (model.fallbackProfileName ?? "")),
             ("Appearance", "appearance", "theme appearance system light dark тема внешний вид светлая тёмная системная"),
             ("Language", "language", "language english russian язык английский русский"),
             ("Launch at login", "login", "startup login launch автозапуск вход запуск"),
@@ -54,6 +57,10 @@ enum SettingsSearchIndex {
         entries += model.urlAppOverrides.map { item in
             SettingsSearchResult(id: item.id, title: item.name, section: .handlers, anchor: item.id,
                 keywords: item.matchSummary + " handlers redirects приложения обработчики переадресация")
+        }
+        entries += model.websiteRoutes.map { route in
+            SettingsSearchResult(id: route.id.uuidString, title: route.pattern.value, section: .websites,
+                anchor: route.id.uuidString, keywords: "website domain address сайт домен адрес " + route.target.displayName)
         }
         let words = query.lowercased().split(whereSeparator: \.isWhitespace).map(String.init)
         guard !words.isEmpty else { return [] }

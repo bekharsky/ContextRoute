@@ -4,15 +4,15 @@ A small macOS utility for routing links from **source apps to browsers and profi
 
 ## How it works
 
-- ContextRoute first checks enabled handlers in **Open in apps**. Matching links open directly in the installed app. If that app is not installed, ContextRoute uses the regular source-app rule.
+- ContextRoute first checks **Website routes** for a matching domain or address, then enabled handlers in **Open in apps**, source-app rules, and the fallback browser.
 - If a link comes from an app with an enabled rule, ContextRoute opens it in the selected browser and profile.
 - If no matching rule is available, the link opens in the selected fallback browser. During initial setup, ContextRoute uses the current macOS default browser. A browser selected manually stays selected after relaunch.
-- As the default browser, ContextRoute also receives webpage Handoff from iPhone and iPad. These links use **Open in apps** and then the fallback browser, because Handoff does not provide a local source-app process for app-route matching.
+- As the default browser, ContextRoute also receives webpage Handoff from iPhone and iPad. These links use website routes, **Open in apps**, and then the fallback browser and its optional profile, because Handoff does not provide a local source-app process for app-route matching.
 - **Open in apps** includes built-in redirects from the Yojam catalog: Zoom, Telegram, Slack, Discord, Spotify, Apple Music, FaceTime, Maps, Microsoft Teams, Figma, Linear, Notion, WhatsApp, Signal, App Store, TestFlight, and Podcasts. Discord links are converted to `discord://` URLs.
-- The sidebar has three sections: **App routes**, **Open in apps**, and **Settings**. Settings contains the fallback browser, theme, language, launch-at-login option, and import/export. The interface defaults to English; Russian and the system language are also available, along with system, light, and dark themes.
+- The sidebar has four sections: **App routes**, **Website routes**, **Open in apps**, and **Settings**. Settings contains the fallback browser and optional profile, theme, language, launch-at-login option, and import/export. The interface defaults to English; Russian and the system language are also available, along with system, light, and dark themes.
 - Sidebar search finds individual settings, rules, and handler domains. Selecting a result opens the relevant section and scrolls to the matching item.
 - In browsers that do not support profile selection, links open in the browser's regular profile.
-- At launch, ContextRoute caches routing rules, app paths, selected-profile availability, and profile launch arguments. Link handling uses that cache instead of rereading settings, profile folders, or searching for apps. Profile launches run in a background queue.
+- At launch, ContextRoute caches app and website rules, normalized address conditions, app paths, selected-profile availability, and profile launch arguments. Link handling uses that cache instead of rereading settings, profile folders, or searching for apps. Profile launches run in a background queue.
 
 Profile folders are detected automatically for browsers in the Yojam catalog: Chrome Stable/Beta/Canary, Brave Stable/Beta/Dev, Edge Stable/Beta, Vivaldi, Wavebox, Helium, Comet, Yandex Browser, Opera/Opera GX, Chromium, Firefox/Developer Edition/Nightly, and Zen. Chromium profiles are read from `Local State`; Firefox profiles are read from `profiles.ini`. For browsers without a compatible profile list, you can select the browser itself and ContextRoute will open it normally.
 
@@ -31,6 +31,22 @@ While the settings or About window is open, the app menu, **File**, and **Window
 
 Selecting a profile is optional. If you leave **Use browser default** selected, the link opens in the destination browser as usual.
 
+## Website routes and fallback profiles
+
+In **Website routes**, choose a browser and optional profile with one of three conditions:
+
+- **Domain** matches a hostname such as `youtube.com`. **Include subdomains** also covers `www.youtube.com` and `m.youtube.com`. It does not match `notyoutube.com` or `youtube.com.example.org`. Add a separate rule for another domain, such as `youtu.be`.
+- **URL starts with** matches an address prefix such as `https://example.com/work/`. The scheme and hostname must match; paths, query strings, and fragments are case-sensitive.
+- **Exact URL** matches one address, including its query string and fragment. Hostname case, default ports, and a missing root slash are normalized. An omitted scheme is treated as HTTPS.
+
+Website routes take priority over **Open in apps** and app routes, including links received through Handoff. Exact addresses take priority over address prefixes, which take priority over domains. Longer prefixes and more specific domains win within the same condition type. A domain without subdomains wins over the same domain with subdomains for that hostname. Rules can be edited, disabled, deleted, and undone; saving an identical condition asks before replacing it.
+
+If the browser or profile selected by a matching website rule is unavailable, ContextRoute reports the error without opening the link in a different profile. Fix or disable that rule to continue.
+
+In **Settings → Fallback browser → Profile**, choose a profile or **Use browser default**. The latter preserves the original behavior and does not pass profile arguments. Changing the fallback browser clears its old profile choice. If a selected fallback profile becomes unavailable, an error is shown until you choose an available profile or return to the browser default.
+
+Existing version 1 settings load with no website rules and no fallback profile. New saves use schema version 2; import, export, backup, and undo include website rules and fallback profiles. Older builds reject version 2 settings instead of silently discarding these choices.
+
 ## Managing rules
 
 - The switch on a rule temporarily disables it while keeping its browser and profile settings.
@@ -39,7 +55,7 @@ Selecting a profile is optional. If you leave **Use browser default** selected, 
 - **Check route…** accepts a link and source app, then explains the routing result. It uses the same logic as link handling and does not open the link.
 - The routing cache updates when settings are saved, imported, undone, or redone. If a browser or profile is installed, removed, or moved while ContextRoute is running, refresh it with the toolbar's **Refresh** button. Bringing the app to the foreground does not rescan browsers or profiles.
 - An unavailable browser or profile is marked in the rules list. If the route cannot be used, ContextRoute uses the fallback browser and shows a warning. Launch errors appear in settings; you can copy the link or try opening it in the fallback browser.
-- **Settings → Import and export** transfers rules, handler states, and the fallback browser in a JSON file. Import replaces those settings after confirmation; theme, language, and launch-at-login stay local to the computer.
+- **Settings → Import and export** transfers app and website rules, handler states, and the fallback browser and profile in a JSON file. Import replaces those settings after confirmation; theme, language, and launch-at-login stay local to the computer.
 
 ## Saving and recovery
 

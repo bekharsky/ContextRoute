@@ -75,6 +75,50 @@ struct RouteRow: View {
     }
 }
 
+struct WebsiteRouteRow: View {
+    let route: WebsiteRoute
+    let onEdit: () -> Void
+    let onDelete: () -> Void
+    let onToggle: (Bool) -> Void
+    let issue: LocalizedMessage?
+
+    private var matchTitle: String {
+        ContextRouteLocalization.string(route.pattern.kind == .domain && route.pattern.includesSubdomains
+            ? "Domain and subdomains" : route.pattern.kind.titleKey)
+    }
+
+    var body: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "globe").font(.system(size: 25)).foregroundStyle(.tint).frame(width: 32, height: 32)
+            Image(systemName: "arrow.right").font(.system(size: 12, weight: .medium)).foregroundStyle(.tertiary)
+            AppIconView(appURL: BrowserCatalog.applicationURL(bundleIdentifier: route.target.browserBundleIdentifier), symbol: "globe", size: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(spacing: 7) {
+                    Text(route.pattern.value).font(.body.weight(.semibold)).lineLimit(1).truncationMode(.middle)
+                    if !route.isEnabled { Text("Off").font(.caption).foregroundStyle(.secondary) }
+                }
+                Text("\(matchTitle) · \(route.target.displayName)")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    .help("\(route.pattern.value) → \(route.target.displayName)")
+                if let issue {
+                    Label(issue.text, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            Spacer(minLength: 8)
+            HStack(spacing: 7) {
+                RouteActionButton(symbol: "pencil", title: "Edit route", action: onEdit)
+                RouteActionButton(symbol: "trash", title: "Delete route", isDestructive: true, action: onDelete)
+            }
+            Toggle("Enable website route", isOn: Binding(get: { route.isEnabled }, set: onToggle))
+                .labelsHidden().toggleStyle(.switch)
+                .help(route.isEnabled ? LocalizedStringKey("Turn route off") : LocalizedStringKey("Turn route on"))
+        }
+        .padding(.horizontal, 13).padding(.vertical, 10)
+        .background(Color(nsColor: .underPageBackgroundColor), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+}
+
 private struct RouteActionButton: View {
     let symbol: String
     let title: LocalizedStringKey

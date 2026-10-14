@@ -9,6 +9,7 @@ struct SettingsPreferencesView: View {
     @Binding var appearance: String
     @Binding var language: String
     let highlightedAnchor: String?
+    let onEditFallback: () -> Void
     @State private var pendingImport: RouterConfiguration?
     @State private var confirmsImport = false
     @State private var transferError: String?
@@ -56,7 +57,29 @@ struct SettingsPreferencesView: View {
                             label: ContextRouteLocalization.string("Fallback browser"), isEnabled: model.canEditSettings)
                             .frame(width: PreferencesLayout.controlWidth)
                     }
-                    settingsDescription("Used for links without a matching app route. Open in apps and app routes take priority.")
+                    if browsers.first(where: { $0.bundleIdentifier == model.fallbackBrowserBundleIdentifier })
+                        .map({ BrowserCatalog.supportsProfiles(for: $0) }) == true || model.fallbackProfileIdentifier != nil {
+                        Divider().padding(.vertical, 4)
+                        settingsRow("Profile") {
+                            Button(action: onEditFallback) {
+                                HStack {
+                                    Text(model.fallbackProfileName ?? model.fallbackProfileIdentifier ?? ContextRouteLocalization.string("Use browser default"))
+                                        .lineLimit(1).truncationMode(.middle)
+                                    Spacer(minLength: 6)
+                                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered).frame(width: PreferencesLayout.controlWidth)
+                            .disabled(!model.canEditSettings)
+                            .help(model.fallbackProfileName ?? ContextRouteLocalization.string("Choose profile…"))
+                        }
+                    }
+                    settingsDescription("Used for unmatched links. Website routes, Open in apps, and app routes take priority.")
+                    if let issue = model.fallbackIssue {
+                        Label(issue.text, systemImage: "exclamationmark.triangle.fill")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                 }
             }
             .searchTarget("fallback", highlighted: highlightedAnchor)
@@ -118,7 +141,7 @@ struct SettingsPreferencesView: View {
                         }
                         .frame(width: PreferencesLayout.controlWidth)
                     }
-                    settingsDescription("Transfer app routes, app handlers and the fallback browser between Macs.")
+                    settingsDescription("Transfer app and website routes, app handlers, and the fallback browser and profile between Macs.")
                     if let transferError {
                         Label(transferError, systemImage: "exclamationmark.triangle.fill").font(.callout)
                     } else if transferSucceeded {
@@ -138,7 +161,7 @@ struct SettingsPreferencesView: View {
             }
         } message: { _ in
             if model.canEditSettings {
-                Text("This replaces your app routes, app handlers and fallback browser. You can undo the import.")
+                Text("This replaces your app and website routes, app handlers, and fallback browser and profile. You can undo the import.")
             } else {
                 Text("This replaces the unreadable settings. A copy of the original file will be kept.")
             }

@@ -275,9 +275,55 @@ struct URLAppOverride: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct RouterConfiguration: Codable, Sendable {
-    var schemaVersion: Int? = 1
+    var schemaVersion: Int? = 2
     var sourceRoutes: [SourceRoute] = []
+    var websiteRoutes: [WebsiteRoute] = []
     var urlAppOverrides: [URLAppOverride] = URLAppOverride.defaults
     var fallbackBrowserBundleIdentifier: String?
     var fallbackBrowserName: String?
+    var fallbackProfileIdentifier: String?
+    var fallbackProfileName: String?
+    var fallbackUserDataDirectory: String?
+
+    var fallbackTarget: BrowserTarget? {
+        guard let id = fallbackBrowserBundleIdentifier else { return nil }
+        return BrowserTarget(browserBundleIdentifier: id, browserName: fallbackBrowserName ?? id,
+            profileIdentifier: fallbackProfileIdentifier, profileName: fallbackProfileName,
+            userDataDirectory: fallbackUserDataDirectory)
+    }
+
+    init(schemaVersion: Int? = 2, sourceRoutes: [SourceRoute] = [], websiteRoutes: [WebsiteRoute] = [],
+         urlAppOverrides: [URLAppOverride] = URLAppOverride.defaults,
+         fallbackBrowserBundleIdentifier: String? = nil, fallbackBrowserName: String? = nil,
+         fallbackProfileIdentifier: String? = nil, fallbackProfileName: String? = nil,
+         fallbackUserDataDirectory: String? = nil) {
+        self.schemaVersion = schemaVersion
+        self.sourceRoutes = sourceRoutes
+        self.websiteRoutes = websiteRoutes
+        self.urlAppOverrides = urlAppOverrides
+        self.fallbackBrowserBundleIdentifier = fallbackBrowserBundleIdentifier
+        self.fallbackBrowserName = fallbackBrowserName
+        self.fallbackProfileIdentifier = fallbackProfileIdentifier
+        self.fallbackProfileName = fallbackProfileName
+        self.fallbackUserDataDirectory = fallbackUserDataDirectory
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, sourceRoutes, websiteRoutes, urlAppOverrides
+        case fallbackBrowserBundleIdentifier, fallbackBrowserName
+        case fallbackProfileIdentifier, fallbackProfileName, fallbackUserDataDirectory
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try values.decodeIfPresent(Int.self, forKey: .schemaVersion) ?? 1
+        sourceRoutes = try values.decode([SourceRoute].self, forKey: .sourceRoutes)
+        websiteRoutes = try values.decodeIfPresent([WebsiteRoute].self, forKey: .websiteRoutes) ?? []
+        urlAppOverrides = try values.decode([URLAppOverride].self, forKey: .urlAppOverrides)
+        fallbackBrowserBundleIdentifier = try values.decodeIfPresent(String.self, forKey: .fallbackBrowserBundleIdentifier)
+        fallbackBrowserName = try values.decodeIfPresent(String.self, forKey: .fallbackBrowserName)
+        fallbackProfileIdentifier = try values.decodeIfPresent(String.self, forKey: .fallbackProfileIdentifier)
+        fallbackProfileName = try values.decodeIfPresent(String.self, forKey: .fallbackProfileName)
+        fallbackUserDataDirectory = try values.decodeIfPresent(String.self, forKey: .fallbackUserDataDirectory)
+    }
 }

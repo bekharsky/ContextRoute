@@ -82,13 +82,22 @@ struct ConfigurationStore {
     }
 
     private func validate(_ config: RouterConfiguration) throws {
-        guard (config.schemaVersion ?? 1) == 1 else { throw StoreError("This settings file was created by a newer version of ContextRoute.") }
+        guard [1, 2].contains(config.schemaVersion ?? 1) else { throw StoreError("This settings file was created by a newer version of ContextRoute.") }
+        let targets = config.sourceRoutes.map(\.target) + config.websiteRoutes.map(\.target) + [config.fallbackTarget].compactMap { $0 }
+        let routeIDs = config.sourceRoutes.map(\.id) + config.websiteRoutes.map(\.id)
+        let patterns = config.websiteRoutes.compactMap { $0.pattern.normalized }
         guard Set(config.sourceRoutes.map(\.id)).count == config.sourceRoutes.count,
+              Set(routeIDs).count == routeIDs.count,
+              patterns.count == config.websiteRoutes.count,
+              Set(patterns).count == patterns.count,
               Set(config.sourceRoutes.map(\.sourceBundleIdentifier)).count == config.sourceRoutes.count,
               Set(config.urlAppOverrides.map(\.id)).count == config.urlAppOverrides.count,
               config.sourceRoutes.allSatisfy({ !$0.sourceBundleIdentifier.isEmpty && !$0.browserBundleIdentifier.isEmpty }),
               config.fallbackBrowserBundleIdentifier != Bundle.main.bundleIdentifier,
               config.sourceRoutes.allSatisfy({ $0.browserBundleIdentifier != Bundle.main.bundleIdentifier }),
+              targets.allSatisfy({ !$0.browserBundleIdentifier.isEmpty && $0.browserBundleIdentifier != Bundle.main.bundleIdentifier
+                  && ($0.profileIdentifier.map { !$0.isEmpty } ?? true) }),
+              config.fallbackProfileIdentifier == nil || config.fallbackBrowserBundleIdentifier != nil,
               config.urlAppOverrides.allSatisfy({ item in
                   !item.id.isEmpty && item.candidateBundleIdentifiers.allSatisfy { $0 != Bundle.main.bundleIdentifier }
               }) else {
