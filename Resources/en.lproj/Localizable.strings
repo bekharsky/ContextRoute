@@ -224,6 +224,7 @@
 "Enter an http or https address such as https://example.com/work/." = "Enter an http or https address such as https://example.com/work/.";
 "Matches addresses starting with this URL. Path, query, and fragment are case-sensitive." = "Matches addresses starting with this URL. Path, query, and fragment are case-sensitive.";
 "Matches only this URL, including its path, query, and fragment." = "Matches only this URL, including its path, query, and fragment.";
+"The browser didn't confirm the link. It may still open; retry only if it doesn't." = "The browser didn't confirm the link. It may still open; retry only if it doesn't.";
 "Choose a domain or address, browser, and optional profile." = "Choose a domain or address, browser, and optional profile.";
 "Choose a browser and an optional profile for unmatched links." = "Choose a browser and an optional profile for unmatched links.";
 "Choose profile…" = "Choose profile…";

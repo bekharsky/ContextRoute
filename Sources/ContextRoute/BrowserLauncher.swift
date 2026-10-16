@@ -28,8 +28,8 @@ final class BrowserLauncher {
             var arguments = profileArguments
             arguments.append(url.absoluteString)
 
-            let browserIsRunning = !NSRunningApplication.runningApplications(
-                withBundleIdentifier: bundleIdentifier).isEmpty
+            let runningBrowsers = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            let browserIsRunning = !runningBrowsers.isEmpty
             let appBundleIdentifier = Bundle(url: appURL)?.bundleIdentifier
             let appBundleMatchesRoute = appBundleIdentifier.map {
                 $0.caseInsensitiveCompare(bundleIdentifier) == .orderedSame
@@ -56,7 +56,10 @@ final class BrowserLauncher {
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice
             processes[id] = process
-            trace?.mark("launch-requested", details: "mode=process destination=profile browser_running=\(browserIsRunning)")
+            let singletonDirectory = browserIsRunning
+                ? BrowserCatalog.chromiumUserDataDirectory(bundleIdentifier: bundleIdentifier, arguments: profileArguments) : nil
+            let runningPIDs = Set(runningBrowsers.map(\.processIdentifier))
+            trace?.mark("launch-requested", details: "mode=\(singletonDirectory == nil ? "process" : "ipc") destination=profile browser_running=\(browserIsRunning)")
             // Launching a profile can wait on executable validation or process creation.
             // Keep those waits off the event loop, and preserve the order of profile launches.
             let queuedAt = trace.map { _ in DispatchTime.now().uptimeNanoseconds }
@@ -64,11 +67,38 @@ final class BrowserLauncher {
                 let started = DispatchTime.now().uptimeNanoseconds
                 let queueWait = queuedAt.map { (started - $0) / 1_000_000 }
                 if let queueWait {
-                    trace?.mark("profile-process-queue-start", details: "queue_wait_ms=\(queueWait)")
+                    trace?.mark("profile-delivery-queue-start", details: "queue_wait_ms=\(queueWait)")
                 }
+                if let singletonDirectory {
+                    trace?.mark("profile-ipc-started")
+                    switch ChromiumSingleton.deliver(in: singletonDirectory, executableURL: executableURL,
+                        arguments: arguments, expectedPIDs: runningPIDs) {
+                    case let .delivered(pid):
+                        trace?.mark("profile-ipc-acknowledged", details: "pid=\(pid)")
+                        DispatchQueue.main.async {
+                            self?.processes[id] = nil
+                            NSRunningApplication(processIdentifier: pid)?.activate()
+                            trace?.mark("running-browser-activated")
+                            completion(nil)
+                        }
+                        return
+                    case let .unavailable(reason):
+                        trace?.mark("profile-ipc-unavailable", details: "reason=\(reason)")
+                    case .unconfirmed:
+                        trace?.mark("profile-ipc-unconfirmed")
+                        DispatchQueue.main.async {
+                            self?.processes[id] = nil
+                            completion(LaunchError(key: "The browser didn't confirm the link. It may still open; retry only if it doesn't."))
+                        }
+                        return
+                    }
+                    trace?.mark("profile-process-fallback")
+                }
+                let processStartedAt = DispatchTime.now().uptimeNanoseconds
                 process.terminationHandler = { [weak self] finished in
                     let status = finished.terminationStatus
-                    let failedEarly = status != 0 && DispatchTime.now().uptimeNanoseconds - started < 10_000_000_000
+                    trace?.mark("profile-process-terminated", details: "pid=\(finished.processIdentifier) status=\(status) lifetime_ms=\((DispatchTime.now().uptimeNanoseconds - processStartedAt) / 1_000_000)")
+                    let failedEarly = status != 0 && DispatchTime.now().uptimeNanoseconds - processStartedAt < 10_000_000_000
                     DispatchQueue.main.async {
                         self?.processes[id] = nil
                         if failedEarly {
@@ -79,7 +109,7 @@ final class BrowserLauncher {
                 do {
                     try process.run()
                     trace?.mark("profile-process-run-return",
-                        details: "run_ms=\((DispatchTime.now().uptimeNanoseconds - started) / 1_000_000)")
+                        details: "pid=\(process.processIdentifier) run_ms=\((DispatchTime.now().uptimeNanoseconds - processStartedAt) / 1_000_000)")
                     DispatchQueue.main.async {
                         if let browser = NSRunningApplication.runningApplications(
                             withBundleIdentifier: bundleIdentifier).first {

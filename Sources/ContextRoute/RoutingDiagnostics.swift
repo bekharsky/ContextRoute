@@ -35,7 +35,7 @@ enum RoutingDiagnostics {
 
     static func write(_ message: String) {
         guard isEnabled else { return }
-        logger.info("\(message, privacy: .public)")
+        logger.notice("\(message, privacy: .public)")
     }
 
     static func logCachePreparation(startedAt: UInt64, handlerCount: Int, routeCount: Int) {

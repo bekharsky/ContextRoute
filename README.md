@@ -14,6 +14,8 @@ A small macOS utility for routing links from **source apps to browsers and profi
 - In browsers that do not support profile selection, links open in the browser's regular profile.
 - At launch, ContextRoute caches app and website rules, normalized address conditions, app paths, selected-profile availability, and profile launch arguments. Link handling uses that cache instead of rereading settings, profile folders, or searching for apps. Profile launches run in a background queue.
 
+For an already running Chromium browser, ContextRoute sends the selected profile arguments and URL through Chromium's [ProcessSingleton channel](https://chromium.googlesource.com/chromium/src/+/main/chrome/browser/process_singleton_posix.cc). This avoids loading another browser executable and framework for each link, including after a browser update. The connection validates the browser process, local user, private socket directory, and matching singleton cookies. Socket operations run off the main thread with a bounded deadline. If the endpoint is unavailable before sending, or explicitly reports shutdown, the normal launch path is used. If a sent request is not acknowledged, ContextRoute reports that delivery is uncertain and does not automatically resend it, avoiding duplicate tabs. Cold browsers and browsers without a compatible channel use the normal launch path.
+
 Profile folders are detected automatically for browsers in the Yojam catalog: Chrome Stable/Beta/Canary, Brave Stable/Beta/Dev, Edge Stable/Beta, Vivaldi, Wavebox, Helium, Comet, Yandex Browser, Opera/Opera GX, Chromium, Firefox/Developer Edition/Nightly, and Zen. Chromium profiles are read from `Local State`; Firefox profiles are read from `profiles.ini`. For browsers without a compatible profile list, you can select the browser itself and ContextRoute will open it normally.
 
 ## Installation
@@ -101,12 +103,12 @@ Routing timing logs are disabled by default. To enable them, quit any running in
 open ./ContextRoute.app --args --debug-routing
 ```
 
-The flag enables timing logs in the macOS system log for that run only. It is not saved in preferences. Log entries contain routing stages and durations; URLs are not recorded.
+The flag enables timing logs in the macOS system log for that run only. It is not saved in preferences. Log entries contain routing stages, durations, IPC acknowledgements, and process exits; URLs are not recorded. Diagnostic messages use the notice level so macOS can retain them on disk, subject to its log storage limits.
 
 ## Data and limitations
 
 - Settings are stored in `~/Library/Application Support/ContextRoute/config.json`.
 - To list profiles, the app reads `Local State` or `profiles.ini` from the browser's data folder. macOS may separately ask for access to browser data; if access is denied, the profile list will not load. ContextRoute reads metadata and does not modify it. Read errors appear in the editor.
-- Launching a browser and checking that a profile exists do not confirm that a page loaded: browsers provide no common API for confirming link delivery. ContextRoute reports system-open errors and nonzero process exits during the first 10 seconds after launch.
+- A Chromium IPC acknowledgement confirms that the running browser accepted the command, not that the page loaded. Other browsers provide no common API for confirming link delivery. ContextRoute reports system-open errors, uncertain IPC delivery, and nonzero process exits during the first 10 seconds after launch.
 - The source app is determined from the app macOS reports with the link. If a link was copied or relayed through another app, macOS may report that intermediary as the source.
 - A local build is Developer ID signed but is not notarized. GitHub release builds are notarized and stapled by the release workflow.

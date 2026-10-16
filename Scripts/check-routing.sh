@@ -14,6 +14,7 @@ xcrun swiftc -O -swift-version 5 \
     "$PROJECT_DIR/Sources/ContextRoute/BrowserCatalog.swift" \
     "$PROJECT_DIR/Sources/ContextRoute/RoutePlanner.swift" \
     "$PROJECT_DIR/Sources/ContextRoute/BrowserLauncher.swift" \
+    "$PROJECT_DIR/Sources/ContextRoute/ChromiumSingleton.swift" \
     "$PROJECT_DIR/Sources/ContextRoute/RoutingDiagnostics.swift" \
     "$PROJECT_DIR/Tests/RoutingChecks.swift" \
     -o "$CHECK_DIR/check-routing"

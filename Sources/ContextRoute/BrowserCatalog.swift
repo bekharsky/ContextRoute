@@ -141,6 +141,17 @@ enum BrowserCatalog {
         }
     }
 
+    static func chromiumUserDataDirectory(bundleIdentifier: String, arguments: [String]) -> URL? {
+        guard let configuration = profileConfigurations[bundleIdentifier.lowercased()],
+              configuration.engine == .chromium else { return nil }
+        if let argument = arguments.first(where: { $0.hasPrefix("--user-data-dir=") }) {
+            let path = String(argument.dropFirst("--user-data-dir=".count))
+            guard path.hasPrefix("/") else { return nil }
+            return URL(fileURLWithPath: path, isDirectory: true)
+        }
+        return applicationSupportDirectory.appendingPathComponent(configuration.applicationSupportPath, isDirectory: true)
+    }
+
     static func applicationURL(bundleIdentifier: String) -> URL? {
         NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier)
     }
@@ -186,10 +197,10 @@ enum BrowserCatalog {
         return path
     }
 
-    private static var applicationSupportDirectory: URL {
+    private static let applicationSupportDirectory: URL = {
         FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Application Support", isDirectory: true)
-    }
+    }()
 
     private static func configuration(for browser: BrowserInfo) -> ProfileConfiguration? {
         profileConfigurations[browser.bundleIdentifier.lowercased()]
