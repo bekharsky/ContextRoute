@@ -94,6 +94,16 @@ final class SettingsFocusVisibility: ObservableObject {
     }
 }
 
+/// Keep focus changes inside each hosting tree instead of replacing its root view.
+struct SettingsFocusContent<Content: View>: View {
+    @ObservedObject var focusVisibility: SettingsFocusVisibility
+    let content: Content
+
+    var body: some View {
+        content.focusEffectDisabled(!focusVisibility.usesKeyboard)
+    }
+}
+
 struct SettingsSplitContainer: NSViewControllerRepresentable {
     struct SidebarState: Equatable {
         let selectedSection: SettingsSection
@@ -102,7 +112,6 @@ struct SettingsSplitContainer: NSViewControllerRepresentable {
         let isDefaultHandler: Bool
         let language: String
         let appearance: String
-        let usesKeyboard: Bool
     }
 
     let sidebar: AnyView

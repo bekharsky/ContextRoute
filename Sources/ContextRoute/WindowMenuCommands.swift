@@ -53,9 +53,13 @@ final class WindowCommandState: ObservableObject {
     private func refresh() {
         let window = NSApp.keyWindow ?? NSApp.mainWindow
         let acceptsCommands = window?.isVisible == true && window?.attachedSheet == nil && window?.sheetParent == nil
-        canClose = acceptsCommands && window?.styleMask.contains(.closable) == true
-        canMinimize = acceptsCommands && window?.styleMask.contains(.miniaturizable) == true
-        canZoom = acceptsCommands && window?.styleMask.contains(.resizable) == true
-        hasWindows = NSApp.windows.contains { $0.canBecomeKey && ($0.isVisible || $0.isMiniaturized) }
+        let canClose = acceptsCommands && window?.styleMask.contains(.closable) == true
+        let canMinimize = acceptsCommands && window?.styleMask.contains(.miniaturizable) == true
+        let canZoom = acceptsCommands && window?.styleMask.contains(.resizable) == true
+        let hasWindows = NSApp.windows.contains { $0.canBecomeKey && ($0.isVisible || $0.isMiniaturized) }
+        if self.canClose != canClose { self.canClose = canClose }
+        if self.canMinimize != canMinimize { self.canMinimize = canMinimize }
+        if self.canZoom != canZoom { self.canZoom = canZoom }
+        if self.hasWindows != hasWindows { self.hasWindows = hasWindows }
     }
 }

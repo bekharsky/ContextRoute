@@ -10,7 +10,7 @@ private enum SettingsSheet {
 
 struct SettingsView: View {
     @ObservedObject var model: RouterModel
-    @ObservedObject var focusVisibility: SettingsFocusVisibility
+    let focusVisibility: SettingsFocusVisibility
     @AppStorage(AppearanceChoice.defaultsKey) private var appearance = AppearanceChoice.system.rawValue
     @AppStorage(InterfaceLanguage.defaultsKey) private var language = InterfaceLanguage.english.rawValue
     @State private var browsers = BrowserCatalog.installedBrowsers()
@@ -42,18 +42,18 @@ struct SettingsView: View {
 
     var body: some View {
         SettingsSplitContainer(
-            sidebar: AnyView(sidebar.environment(\.locale, interfaceLanguage.locale)
-                .focusEffectDisabled(!focusVisibility.usesKeyboard)),
+            sidebar: AnyView(SettingsFocusContent(focusVisibility: focusVisibility,
+                content: sidebar.environment(\.locale, interfaceLanguage.locale))),
             sidebarState: .init(selectedSection: selectedSection, searchQuery: searchQuery,
                 searchResults: searchQuery.isEmpty ? [] : searchResults,
                 isDefaultHandler: model.isContextRouteDefaultHandler,
-                language: language, appearance: appearance, usesKeyboard: focusVisibility.usesKeyboard),
-            detail: AnyView(detail.environment(\.locale, interfaceLanguage.locale)
-                .focusEffectDisabled(!focusVisibility.usesKeyboard)),
-            sheetContent: AnyView(sheetContent.environment(\.locale, interfaceLanguage.locale)
-                .preferredColorScheme(appearanceChoice.colorScheme)
-                .focusEffectDisabled(!focusVisibility.usesKeyboard)
-                .presentationSizing(.fitted)),
+                language: language, appearance: appearance),
+            detail: AnyView(SettingsFocusContent(focusVisibility: focusVisibility,
+                content: detail.environment(\.locale, interfaceLanguage.locale))),
+            sheetContent: AnyView(SettingsFocusContent(focusVisibility: focusVisibility,
+                content: sheetContent.environment(\.locale, interfaceLanguage.locale)
+                    .preferredColorScheme(appearanceChoice.colorScheme)
+                    .presentationSizing(.fitted))),
             isPresentingSheet: isPresentingSheet,
             focusVisibility: focusVisibility,
             searchText: $searchText,
@@ -68,7 +68,6 @@ struct SettingsView: View {
         .ignoresSafeArea()
         .preferredColorScheme(appearanceChoice.colorScheme)
         .environment(\.locale, interfaceLanguage.locale)
-        .focusEffectDisabled(!focusVisibility.usesKeyboard)
         .onAppear { model.refreshDefaultHandlerStatus() }
         .onChange(of: appearance) { _, _ in NSApp.appearance = appearanceChoice.nativeAppearance }
         .onReceive(NotificationCenter.default.publisher(for: AppDelegate.showLinkSetupNotification)) { _ in
@@ -104,7 +103,7 @@ struct SettingsView: View {
                     Section("Search results") {
                         ForEach(searchResults) { result in
                             HStack(spacing: 8) {
-                                sidebarIcon(for: result.section).foregroundStyle(.tint).frame(width: 18)
+                                sidebarIcon(for: result.section).frame(width: 18)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(result.title).lineLimit(1)
                                     Text(result.section.resolvedTitle).font(.caption).foregroundStyle(.secondary)
@@ -129,14 +128,8 @@ struct SettingsView: View {
     }
 
     private func sidebarIcon(for section: SettingsSection) -> some View {
-        Image(systemName: section.symbol)
-            .symbolVariant(.none)
-            .symbolEffectsRemoved()
-            .contentTransition(.identity)
-            .transaction { transaction in
-                transaction.animation = nil
-                transaction.disablesAnimations = true
-            }
+        SettingsSectionIcon(section: section,
+            isSelected: searchQuery.isEmpty && selectedSection == section)
     }
 
     private var detail: some View {
@@ -380,5 +373,30 @@ struct SettingsView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
             if highlightedAnchor == result.anchor { highlightedAnchor = nil }
         }
+    }
+}
+
+private struct SettingsSectionIcon: View {
+    let section: SettingsSection
+    let isSelected: Bool
+    @Environment(\.self) private var environment
+
+    private var color: Color {
+        if !environment.appearsActive { return Color(nsColor: .secondaryLabelColor) }
+        return isSelected ? .white : .accentColor
+    }
+
+    var body: some View {
+        Image(systemName: section.symbol)
+            .symbolVariant(.none)
+            .symbolRenderingMode(.monochrome)
+            // Use a concrete foreground instead of the sidebar's automatic icon tint.
+            .foregroundStyle(color.resolve(in: environment))
+            .symbolEffectsRemoved()
+            .contentTransition(.identity)
+            .transaction { transaction in
+                transaction.animation = nil
+                transaction.disablesAnimations = true
+            }
     }
 }

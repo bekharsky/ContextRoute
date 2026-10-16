@@ -96,6 +96,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let hostingController = NSHostingController(
             rootView: SettingsView(model: RouterModel.shared, focusVisibility: focusVisibility))
         hostingController.sizingOptions = []
+        // AppKit owns this window's title and toolbar.
+        hostingController.sceneBridgingOptions = []
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 760, height: 540),
             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
@@ -143,34 +145,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
             options[.applicationIcon] = icon
         }
 
-        activateForWindow()
-        NSApp.orderFrontStandardAboutPanel(options: options)
-        DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
+        presentWindow {
             NSApp.orderFrontStandardAboutPanel(options: options)
         }
     }
 
     private func bringSettingsWindowForward(_ window: NSWindow) {
-        if window.isMiniaturized { window.deminiaturize(nil) }
-        activateForWindow()
-        window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
-
-        // A menu-bar action can run before menu tracking finishes and activation takes effect.
-        DispatchQueue.main.async {
-            NSApp.activate(ignoringOtherApps: true)
+        presentWindow { [weak window] in
+            guard let window else { return }
+            if window.isMiniaturized { window.deminiaturize(nil) }
             window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
         }
     }
 
-    private func activateForWindow() {
+    private func presentWindow(_ presentation: @escaping () -> Void) {
         // An accessory app has no application menu. Use the regular policy while
         // a user-facing window is open, and return to the menu bar when it closes.
         if NSApp.activationPolicy() != .regular { NSApp.setActivationPolicy(.regular) }
-        NSApp.unhide(nil)
-        NSApp.activate(ignoringOtherApps: true)
-        scheduleMenuCleanup()
+        removeEmptyMenus()
+
+        // Let the policy change settle, then show the window in the same turn
+        // as the activation request. Activation isn't guaranteed to produce a notification.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isTerminating else { return }
+            NSApp.unhideWithoutActivation()
+            NSApp.activate(ignoringOtherApps: true)
+            presentation()
+        }
     }
 
     private func scheduleMenuCleanup() {
@@ -180,12 +182,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.menuCleanupScheduled = false
-            guard let mainMenu = NSApp.mainMenu else { return }
-            for item in mainMenu.items {
-                guard let submenu = item.submenu else { continue }
-                let isEmpty = !self.hasCommands(in: submenu)
-                if item.isHidden != isEmpty { item.isHidden = isEmpty }
-            }
+            self.removeEmptyMenus()
+        }
+    }
+
+    private func removeEmptyMenus() {
+        guard let mainMenu = NSApp.mainMenu else { return }
+        for item in mainMenu.items {
+            guard let submenu = item.submenu else { continue }
+            let isEmpty = !hasCommands(in: submenu)
+            if item.isHidden != isEmpty { item.isHidden = isEmpty }
         }
     }
 
@@ -278,7 +284,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {
-        scheduleMenuCleanup()
+        removeEmptyMenus()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
