@@ -69,7 +69,13 @@ final class SettingsFocusVisibility: ObservableObject {
 
     private func updateRingTypes(in view: NSView, excluding windowButtons: Set<ObjectIdentifier>) {
         guard !windowButtons.contains(ObjectIdentifier(view)) else { return }
-        if view is NSControl || view is NSScrollView {
+        if view is NSTableView || view is NSScrollView {
+            // Lists indicate focus through selection, without outlining the entire pane.
+            if view.focusRingType != .none {
+                view.focusRingType = .none
+                view.noteFocusRingMaskChanged()
+            }
+        } else if view is NSControl {
             updateControlRingType(view)
         }
         for child in view.subviews { updateRingTypes(in: child, excluding: windowButtons) }

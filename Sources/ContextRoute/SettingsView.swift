@@ -128,8 +128,7 @@ struct SettingsView: View {
     }
 
     private func sidebarIcon(for section: SettingsSection) -> some View {
-        SettingsSectionIcon(section: section,
-            isSelected: searchQuery.isEmpty && selectedSection == section)
+        SettingsSectionIcon(section: section)
     }
 
     private var detail: some View {
@@ -378,12 +377,13 @@ struct SettingsView: View {
 
 private struct SettingsSectionIcon: View {
     let section: SettingsSection
-    let isSelected: Bool
     @Environment(\.self) private var environment
 
     private var color: Color {
+        // Selection can lose emphasis while its window remains active.
+        if environment.backgroundProminence == .increased { return .white }
         if !environment.appearsActive { return Color(nsColor: .secondaryLabelColor) }
-        return isSelected ? .white : .accentColor
+        return .accentColor
     }
 
     var body: some View {
