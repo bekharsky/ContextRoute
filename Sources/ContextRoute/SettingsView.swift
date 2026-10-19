@@ -259,7 +259,7 @@ struct SettingsView: View {
                     content()
                 }
                 .frame(maxWidth: 810, alignment: .leading)
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                .frame(maxWidth: .infinity, alignment: .top)
                 .padding(.horizontal, 21).padding(.vertical, 18)
             }
             .scrollIndicators(.automatic)
