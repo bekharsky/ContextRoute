@@ -341,6 +341,7 @@ struct SettingsView: View {
     }
 
     private func refreshBrowsers() {
+        AppIconImages.invalidate()
         let installedBrowsers = BrowserCatalog.installedBrowsers()
         if browsers != installedBrowsers { browsers = installedBrowsers }
         model.refreshDefaultHandlerStatus()

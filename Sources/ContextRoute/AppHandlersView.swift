@@ -45,6 +45,7 @@ struct AppOverrideRow: View {
             Toggle(override.name, isOn: Binding(get: { override.isEnabled }, set: onToggle))
                 .labelsHidden()
                 .toggleStyle(.switch)
+                .controlSize(.mini)
                 .help(override.isEnabled ? LocalizedStringKey("Turn handler off") : LocalizedStringKey("Turn handler on"))
         }
         .padding(.horizontal, 13)

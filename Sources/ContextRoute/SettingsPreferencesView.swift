@@ -109,7 +109,7 @@ struct SettingsPreferencesView: View {
                         Toggle("Launch at login", isOn: Binding(get: { loginItem.isEnabled }, set: loginItem.setEnabled))
                             .labelsHidden()
                             .toggleStyle(.switch)
-                            .controlSize(.regular)
+                            .controlSize(.mini)
                             .frame(width: PreferencesLayout.controlWidth, alignment: .trailing)
                     }
                     settingsDescription("Start in the menu bar when you sign in.")

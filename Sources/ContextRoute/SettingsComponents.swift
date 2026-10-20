@@ -162,7 +162,7 @@ struct AppIconView: View {
     var body: some View {
         Group {
             if let appURL {
-                Image(nsImage: NSWorkspace.shared.icon(forFile: appURL.path))
+                Image(nsImage: AppIconImages.image(for: appURL))
                     .resizable()
                     .scaledToFit()
             } else {
@@ -177,6 +177,46 @@ struct AppIconView: View {
         .clipShape(RoundedRectangle(cornerRadius: size * 0.23, style: .continuous))
         .accessibilityHidden(true)
     }
+}
+
+@MainActor
+enum AppIconImages {
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 64
+        cache.totalCostLimit = 4 * 1024 * 1024
+        return cache
+    }()
+
+    static func image(for appURL: URL) -> NSImage {
+        let appearance = NSApp.effectiveAppearance
+        let key = "\(appURL.absoluteString)|\(appearance.name.rawValue)" as NSString
+        if let image = cache.object(forKey: key) { return image }
+
+        let source = NSWorkspace.shared.icon(forFile: appURL.path)
+        // Resolve the system icon before SwiftUI selects its small-size representation.
+        let pixels = 128
+        guard let bitmap = NSBitmapImageRep(bitmapDataPlanes: nil,
+            pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+            samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+            colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0),
+              let context = NSGraphicsContext(bitmapImageRep: bitmap) else { return source }
+        bitmap.size = NSSize(width: pixels, height: pixels)
+        appearance.performAsCurrentDrawingAppearance {
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = context
+            context.imageInterpolation = .high
+            context.cgContext.clear(NSRect(origin: .zero, size: bitmap.size))
+            source.draw(in: NSRect(origin: .zero, size: bitmap.size))
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        let image = NSImage(size: bitmap.size)
+        image.addRepresentation(bitmap)
+        cache.setObject(image, forKey: key, cost: bitmap.bytesPerRow * bitmap.pixelsHigh)
+        return image
+    }
+
+    static func invalidate() { cache.removeAllObjects() }
 }
 
 extension View {

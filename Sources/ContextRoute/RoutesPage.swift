@@ -61,6 +61,7 @@ struct RouteRow: View {
             Toggle("Enable app route", isOn: Binding(get: { route.isEnabled }, set: onToggle))
                 .labelsHidden()
                 .toggleStyle(.switch)
+                .controlSize(.mini)
                 .help(route.isEnabled ? LocalizedStringKey("Turn route off") : LocalizedStringKey("Turn route on"))
         }
         .padding(.horizontal, 13)
@@ -111,7 +112,7 @@ struct WebsiteRouteRow: View {
                 RouteActionButton(symbol: "trash", title: "Delete route", isDestructive: true, action: onDelete)
             }
             Toggle("Enable website route", isOn: Binding(get: { route.isEnabled }, set: onToggle))
-                .labelsHidden().toggleStyle(.switch)
+                .labelsHidden().toggleStyle(.switch).controlSize(.mini)
                 .help(route.isEnabled ? LocalizedStringKey("Turn route off") : LocalizedStringKey("Turn route on"))
         }
         .padding(.horizontal, 13).padding(.vertical, 10)
