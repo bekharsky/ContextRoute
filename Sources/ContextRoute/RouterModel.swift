@@ -342,8 +342,33 @@ final class RouterModel: ObservableObject {
     }
 
     func retryInFallback(_ url: URL) {
+        if url.isFileURL {
+            openLocalHTML(url, isRetry: true)
+            return
+        }
         let result = RoutePlanner.decide(url, sourceBundleIdentifier: nil, snapshot: routingSnapshot.fallbackOnly)
         open(result, url: url, clearsPreviousIssue: true)
+    }
+
+    func openLocalHTML(_ url: URL, isRetry: Bool = false, trace: RoutingTrace? = nil) {
+        let host = url.host?.lowercased() ?? ""
+        guard url.isFileURL, host.isEmpty || host == "localhost",
+              ["html", "htm"].contains(url.pathExtension.lowercased()) else { return }
+
+        trace?.mark("local-html-received")
+        guard let browserID = fallbackBrowserBundleIdentifier,
+              let browser = BrowserCatalog.browser(bundleIdentifier: browserID) else {
+            reportFailure(LocalizedMessage(key: "Choose an installed fallback browser in Settings."), url: url, routeID: nil)
+            return
+        }
+        if isRetry { routingIssue = nil }
+
+        // Keep the original document intact so Chrome or another browser can submit any form it contains.
+        launcher.open(.application(appURL: browser.appURL, url: url), trace: trace) { [weak self] error in
+            guard let self, let error else { return }
+            self.reportFailure(LocalizedMessage(key: "Couldn't open the link in %@: %@",
+                arguments: [browser.name, error.localizedDescription]), url: url, routeID: nil)
+        }
     }
 
     private func open(_ result: RouteDecision, url: URL, clearsPreviousIssue: Bool, trace: RoutingTrace? = nil) {

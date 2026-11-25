@@ -336,8 +336,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
         routeIncomingURL(url, sourceBundleIdentifier: sourceBundleIdentifier)
     }
 
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.isFileURL {
+            routeIncomingURL(url, sourceBundleIdentifier: nil)
+        }
+    }
+
     private func routeIncomingURL(_ url: URL, sourceBundleIdentifier: String?, fromHandoff: Bool = false) {
         let trace = RoutingTrace(processStartedAt: processStartedAt)
+        if url.isFileURL {
+            Task { @MainActor in
+                RouterModel.shared.openLocalHTML(url, trace: trace)
+            }
+            return
+        }
         trace?.mark("url-received", details: "source_known=\(sourceBundleIdentifier != nil) handoff=\(fromHandoff)")
         Task { @MainActor in
             RouterModel.shared.route(url, sourceBundleIdentifier: sourceBundleIdentifier, trace: trace)
